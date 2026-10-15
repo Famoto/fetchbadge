@@ -1,0 +1,10 @@
+[package]
+name = "nametag-preview"
+version = "0.1.0"
+edition = "2021"
+
+# Host-side render of ../firmware/src/badge.rs to preview.png. Run: cargo run
+[dependencies]
+embedded-graphics = "0.8.1"
+qrcodegen-no-heap = "1.8.1"
+png = "0.17"
