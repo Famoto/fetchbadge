@@ -11,9 +11,18 @@ nametag/
 ## Firmware
 
 Driver: [`lilygo-epd47`](https://crates.io/crates/lilygo-epd47) 1.1 (esp-hal port of LilyGO's ED047TC1 driver, V2.3/S3 only, GPL-3.0).
-Draws the badge on boot, then deep-sleeps until the **IO21** user button is pressed or six hours
-have elapsed. Either wake source refreshes the battery line and redraws the whole badge.
-E-paper keeps the image unpowered. **RST** also restarts and redraws the badge.
+Draws the whole badge on power-on or **RST**, then deep-sleeps until the **IO21** user button
+is pressed or the configured interval elapses (currently 60 minutes). Button/timer wakes
+update only the battery row. If the displayed percentage and two-decimal voltage are unchanged,
+the firmware skips clearing/drawing/flushing. E-paper keeps the image unpowered.
+
+The previous displayed reading and partial refresh count are retained in RTC fast RAM, with
+a validity marker and checksum; no flash writes are needed. Cold boot, RST, invalid retained
+state, or a failed refresh forces a full redraw. `FULL_REFRESH_AFTER_PARTIALS` in
+`firmware/src/config.rs` defaults to `Some(24)`: the wake after 24 successful battery-only
+redraws performs a full cleanup, even if the reading is unchanged. Set it to `None` to disable
+automatic cleanup, or `Some(0)` to always redraw fully. Adjust this after checking ghosting
+on your panel. Unchanged readings do not count toward the cleanup threshold.
 
 Set `REFRESH_INTERVAL_MINUTES` in `firmware/src/config.rs` to `Some(360)` for six hours,
 `Some(30)` for thirty minutes, or `None` for button-only refresh. The minute count must be nonzero.
@@ -23,7 +32,7 @@ a wall-clock schedule and needs neither Wi-Fi nor the external PCF8563 RTC.
 
 Before sleeping, the firmware waits up to two seconds for a debounced button release.
 If IO21 is still held, it sleeps with wake-on-release instead of wake-on-press, avoiding
-repeated immediate wakes. Releasing then causes one extra refresh and restores normal
+repeated immediate wakes. Releasing then checks the battery again and restores normal
 press-to-refresh behavior. The scheduled timer remains enabled during a long press.
 IO0 remains reserved for boot/panel control.
 
@@ -38,21 +47,32 @@ The preview uses the same configuration, fonts, and renderer as the firmware; it
 voltage and output path are constants at the top of `preview/src/main.rs`.
 
 The firmware flow in `src/main.rs` is: initialize hardware and PSRAM, power on the panel,
-read the battery, clear and render, flush, power off, then arm button/timer deep sleep.
+read the battery, choose full/battery-only/no redraw, power off, then arm button/timer deep sleep.
+Partial redraw physically clears the entire battery rectangle before drawing the new text,
+so shorter values erase previous digits. The rest of the badge is left on the panel.
+Even unchanged readings require a short panel power-on to sample the battery; boot, PSRAM,
+and framebuffer allocation overhead also remain. Actual energy savings require measurement.
 The battery must be read after the panel rail is powered on. Returned clear/render/flush errors
 are logged after powering off the panel, then the device sleeps.
 
-`src/badge.rs` draws the logo, QR code, header, information rows, and grayscale ramp in order.
+`src/badge.rs` draws the logo, QR code, header, information rows, and grayscale ramp in order,
+and exposes the same battery renderer and bounds for partial updates. `src/refresh.rs` decides
+whether to redraw, skip, or perform a full cleanup using the retained reading and wake type.
 `src/badge/font.rs` handles font decoding and text drawing. The renderer returns drawing,
 QR encoding, and basic layout errors to its caller. Battery percentage is a clamped linear
 estimate between the voltage limits in `config.rs`.
 
 Host checks: run `cargo test --locked` and `cargo clippy --locked --all-targets -- -D warnings` in `preview/`.
 Firmware check: run `cargo build --release --locked` in `firmware/` with the ESP toolchain.
-On hardware, test IO21 wake, a temporarily short timer interval (e.g. 30 seconds), a press
+Host tests compare battery-only updates against full renders, check bounds and preservation
+of surrounding pixels, and exercise retained-state validation, skip decisions, and cleanup.
+On hardware, test IO21 wake, a temporarily short timer interval (e.g. `Some(1)` for one minute), a press
 held through the refresh and released after sleep, and repeated sleep/wake cycles on battery.
 Also verify button-only/timer-only modes, sleep current, and displayed voltage against a
-multimeter. Restore the normal interval after testing; percentage remains an approximate
+multimeter. Confirm unchanged readings cause no visible refresh, changed readings affect only
+the battery row, RST redraws everything, and `FULL_REFRESH_AFTER_PARTIALS = Some(2)` produces
+a full cleanup after two partial updates. Check ghosting over repeated partial updates.
+Restore the normal interval and cleanup threshold after testing; percentage remains an approximate
 voltage-based estimate and does not detect charging or battery presence.
 
 Text is [Fira Code](https://github.com/tonsky/FiraCode) Medium (OFL), pre-rendered with 16-level antialiasing into
