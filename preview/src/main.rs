@@ -8,6 +8,13 @@ mod badge;
 #[path = "../../firmware/src/config.rs"]
 mod config;
 
+#[cfg(test)]
+#[path = "../../firmware/src/refresh.rs"]
+mod refresh;
+
+#[cfg(test)]
+mod tests;
+
 const PREVIEW_BATTERY_VOLTS: f32 = 3.98;
 const OUTPUT_PATH: &str = "preview.png";
 

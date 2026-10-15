@@ -16,10 +16,6 @@ use crate::config::{
 mod font;
 use font::{SMALL, TEXT, TITLE};
 
-#[cfg(test)]
-#[path = "badge/tests.rs"]
-mod tests;
-
 #[derive(Debug)]
 pub enum RenderError<E> {
     Target(E),
@@ -50,8 +46,53 @@ pub fn draw<D: DrawTarget<Color = Gray4>>(
     draw_logo(target, badge, layout).map_err(RenderError::Target)?;
     draw_qr(target, badge, layout)?;
     draw_header(target, badge, layout).map_err(RenderError::Target)?;
-    let next_y = draw_info_rows(target, badge, layout, volts).map_err(RenderError::Target)?;
+    let battery_y = draw_info_rows(target, badge, layout).map_err(RenderError::Target)?;
+    draw_battery(target, badge, layout, volts)?;
+    let next_y = battery_y + layout.row_spacing;
     draw_color_ramp(target, layout, next_y).map_err(RenderError::Target)
+}
+
+/// Use the exact rendered string when deciding whether a battery refresh is needed.
+pub fn battery_text(volts: f32) -> alloc::string::String {
+    format!("{}% ({volts:.2}V)", battery_percent(volts))
+}
+
+/// Entire battery row, including space to erase a previously longer value.
+pub fn battery_area(badge: &BadgeConfig, layout: &LayoutConfig) -> Result<Rectangle, &'static str> {
+    let y = i64::from(layout.info_y) + badge.info.len() as i64 * i64::from(layout.row_spacing);
+    if layout.column_x < 0
+        || layout.column_x >= PANEL_SIZE.width as i32
+        || y < 0
+        || y + i64::from(TEXT.height) > i64::from(PANEL_SIZE.height)
+    {
+        return Err("battery row must fit the panel");
+    }
+    Ok(Rectangle::new(
+        Point::new(layout.column_x, y as i32),
+        Size::new(
+            PANEL_SIZE.width - layout.column_x as u32,
+            TEXT.height as u32,
+        ),
+    ))
+}
+
+/// Draw only battery text. The caller must physically clear `battery_area` first.
+pub fn draw_battery<D: DrawTarget<Color = Gray4>>(
+    target: &mut D,
+    badge: &BadgeConfig,
+    layout: &LayoutConfig,
+    volts: f32,
+) -> Result<(), RenderError<D::Error>> {
+    validate_layout(badge, layout).map_err(RenderError::InvalidLayout)?;
+    let area = battery_area(badge, layout).map_err(RenderError::InvalidLayout)?;
+    draw_info_row(
+        target,
+        layout,
+        "Battery",
+        &battery_text(volts),
+        area.top_left.y,
+    )
+    .map_err(RenderError::Target)
 }
 
 /// Approximate linear LiPo charge estimate, clamped at the configured voltage limits.
@@ -64,6 +105,7 @@ fn battery_percent(volts: f32) -> u8 {
 }
 
 fn validate_layout(badge: &BadgeConfig, layout: &LayoutConfig) -> Result<(), &'static str> {
+    battery_area(badge, layout)?;
     if layout.key_ink > 15 || layout.value_ink > 15 {
         return Err("ink must be between 0 and 15");
     }
@@ -175,27 +217,30 @@ fn draw_info_rows<D: DrawTarget<Color = Gray4>>(
     target: &mut D,
     badge: &BadgeConfig,
     layout: &LayoutConfig,
-    volts: f32,
 ) -> Result<i32, D::Error> {
-    let battery = format!("{}% ({volts:.2}V)", battery_percent(volts));
     let mut y = layout.info_y;
-    for (key, value) in badge
-        .info
-        .iter()
-        .copied()
-        .chain([("Battery", battery.as_str())])
-    {
-        TEXT.draw(
-            target,
-            &format!("{key}:"),
-            Point::new(layout.column_x, y),
-            layout.key_ink,
-        )?;
-        let value_x = layout.column_x + (key.chars().count() as i32 + 2) * TEXT.width;
-        TEXT.draw(target, value, Point::new(value_x, y), layout.value_ink)?;
+    for &(key, value) in badge.info {
+        draw_info_row(target, layout, key, value, y)?;
         y += layout.row_spacing;
     }
     Ok(y)
+}
+
+fn draw_info_row<D: DrawTarget<Color = Gray4>>(
+    target: &mut D,
+    layout: &LayoutConfig,
+    key: &str,
+    value: &str,
+    y: i32,
+) -> Result<(), D::Error> {
+    TEXT.draw(
+        target,
+        &format!("{key}:"),
+        Point::new(layout.column_x, y),
+        layout.key_ink,
+    )?;
+    let value_x = layout.column_x + (key.chars().count() as i32 + 2) * TEXT.width;
+    TEXT.draw(target, value, Point::new(value_x, y), layout.value_ink)
 }
 
 fn draw_color_ramp<D: DrawTarget<Color = Gray4>>(

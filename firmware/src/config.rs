@@ -5,6 +5,14 @@ pub const PANEL_SIZE: Size = Size::new(960, 540);
 pub const BATTERY_EMPTY_VOLTS: f32 = 3.3;
 pub const BATTERY_FULL_VOLTS: f32 = 4.2;
 
+/// Firmware refresh interval in minutes. None disables the timer; Some must be nonzero.
+#[cfg(target_arch = "xtensa")]
+pub const REFRESH_INTERVAL_MINUTES: Option<u32> = Some(60);
+
+/// Full cleanup on the wake after this many successful battery-only redraws. None disables it.
+#[cfg(target_arch = "xtensa")]
+pub const FULL_REFRESH_AFTER_PARTIALS: Option<u32> = Some(24);
+
 pub struct BadgeConfig {
     pub user: &'static str,
     pub host: &'static str,

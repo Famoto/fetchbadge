@@ -11,8 +11,25 @@ nametag/
 ## Firmware
 
 Driver: [`lilygo-epd47`](https://crates.io/crates/lilygo-epd47) 1.1 (esp-hal port of LilyGO's ED047TC1 driver, V2.3/S3 only, GPL-3.0).
-Draws the badge once, then deep-sleeps with no wake source. E-paper keeps the image unpowered.
-Press **RST** on the side to redraw (also refreshes the battery line).
+Draws the badge on boot, then deep-sleeps until the **IO21** user button is pressed or six hours
+have elapsed. Either wake source refreshes the battery line and redraws the whole badge.
+E-paper keeps the image unpowered. **RST** also restarts and redraws the badge.
+
+Set `REFRESH_INTERVAL_MINUTES` in `firmware/src/config.rs` to `Some(360)` for six hours,
+`Some(30)` for thirty minutes, or `None` for button-only refresh. The minute count must be nonzero.
+Set `BUTTON_WAKE_ENABLED` in `firmware/src/main.rs` to `false` for timer-only operation. Disabling both restores
+reset-only operation. The interval starts when entering sleep after each refresh; it is not
+a wall-clock schedule and needs neither Wi-Fi nor the external PCF8563 RTC.
+
+Before sleeping, the firmware waits up to two seconds for a debounced button release.
+If IO21 is still held, it sleeps with wake-on-release instead of wake-on-press, avoiding
+repeated immediate wakes. Releasing then causes one extra refresh and restores normal
+press-to-refresh behavior. The scheduled timer remains enabled during a long press.
+IO0 remains reserved for boot/panel control.
+
+The supplied pinmap picture labels its PCB **V2.4 capacitive touch**. IO21/button and
+IO14/battery agree with this implementation, but the driver targets V2.3; display compatibility
+with V2.4 still requires a hardware check. Touch wake and the external RTC are not configured.
 
 Edit `BADGE` in `firmware/src/config.rs` to change the user, host, information rows, QR URL/caption, or logo.
 `LAYOUT` in the same file controls positions, spacing, QR module size, and grayscale ink.
@@ -21,7 +38,7 @@ The preview uses the same configuration, fonts, and renderer as the firmware; it
 voltage and output path are constants at the top of `preview/src/main.rs`.
 
 The firmware flow in `src/main.rs` is: initialize hardware and PSRAM, power on the panel,
-read the battery, clear and render, flush, power off, then deep-sleep until reset.
+read the battery, clear and render, flush, power off, then arm button/timer deep sleep.
 The battery must be read after the panel rail is powered on. Returned clear/render/flush errors
 are logged after powering off the panel, then the device sleeps.
 
@@ -31,6 +48,12 @@ QR encoding, and basic layout errors to its caller. Battery percentage is a clam
 estimate between the voltage limits in `config.rs`.
 
 Host checks: run `cargo test --locked` and `cargo clippy --locked --all-targets -- -D warnings` in `preview/`.
+Firmware check: run `cargo build --release --locked` in `firmware/` with the ESP toolchain.
+On hardware, test IO21 wake, a temporarily short timer interval (e.g. 30 seconds), a press
+held through the refresh and released after sleep, and repeated sleep/wake cycles on battery.
+Also verify button-only/timer-only modes, sleep current, and displayed voltage against a
+multimeter. Restore the normal interval after testing; percentage remains an approximate
+voltage-based estimate and does not detect charging or battery presence.
 
 Text is [Fira Code](https://github.com/tonsky/FiraCode) Medium (OFL), pre-rendered with 16-level antialiasing into
 `firmware/src/fonts/*.bin` by `tools/fontgen.py`. Ligatures aren't applied. To change the weight, rerun it with another
@@ -68,7 +91,7 @@ The back has a 100 x 50 x 0.8 mm recess for adhesive hook velcro, with 4 holes t
 
 | # | Part | Notes | ~Price |
 |---|------|-------|--------|
-| 1 | LilyGO T5 4.7" E-Paper S3 V2.3 | you have it | — |
+| 1 | LilyGO T5 4.7" E-Paper S3 V2.3 |  | 40€ |
 | 1 | LiPo 3.7 V, 1000 mAh, **503450** (5 x 34 x 50 mm) | JST-PH 2.0 2-pin. **Check polarity against BAT+/BAT− on the board before plugging in**, cheap packs are often reversed | €6–10 |
 | 1 | Clear acrylic or PETG sheet, 1 mm, cut to 118 x 63 mm | protects the 0.87 mm glass panel; set `lens_t=0` to skip | €3 |
 | 4 | M2 x 8 self-tapping screws for plastic (pan head) | bezel to tray | €2 |
