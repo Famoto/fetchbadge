@@ -1,24 +1,30 @@
-use super::*;
-use embedded_graphics::primitives::Rectangle;
+use embedded_graphics::{pixelcolor::Gray4, prelude::*, primitives::Rectangle};
+use nametag_preview::{badge, config, Framebuffer};
 
 #[test]
 fn battery_only_update_matches_full_render_and_preserves_other_pixels() {
     // Exercise both shrinking and growing battery text, including 100% -> 0%.
     for (old_volts, new_volts) in [(4.2, 3.3), (3.3, 4.2), (3.98, 3.749)] {
-        let mut partial = Framebuffer::new();
-        badge::draw(&mut partial, &config::BADGE, &config::LAYOUT, old_volts).unwrap();
-        let before = partial.pixels.clone();
+        let mut partial = Framebuffer::default();
+        badge::Renderer::new(&mut partial, &config::BADGE, &config::LAYOUT)
+            .draw(old_volts)
+            .unwrap();
+        let before = partial.pixels().to_vec();
         let area = badge::battery_area(&config::BADGE, &config::LAYOUT).unwrap();
         partial.fill_solid(&area, Gray4::WHITE).unwrap();
-        badge::draw_battery(&mut partial, &config::BADGE, &config::LAYOUT, new_volts).unwrap();
+        badge::Renderer::new(&mut partial, &config::BADGE, &config::LAYOUT)
+            .draw_battery(new_volts)
+            .unwrap();
 
-        let mut expected = Framebuffer::new();
-        badge::draw(&mut expected, &config::BADGE, &config::LAYOUT, new_volts).unwrap();
-        assert_eq!(partial.pixels, expected.pixels);
+        let mut expected = Framebuffer::default();
+        badge::Renderer::new(&mut expected, &config::BADGE, &config::LAYOUT)
+            .draw(new_volts)
+            .unwrap();
+        assert_eq!(partial.pixels(), expected.pixels());
         for point in Rectangle::new(Point::zero(), config::PANEL_SIZE).points() {
             if !area.contains(point) {
                 let index = point.y as usize * config::PANEL_SIZE.width as usize + point.x as usize;
-                assert_eq!(partial.pixels[index], before[index]);
+                assert_eq!(partial.pixels()[index], before[index]);
             }
         }
     }
@@ -43,10 +49,7 @@ fn battery_draw_never_writes_outside_its_clear_rectangle() {
             pixels: I,
         ) -> Result<(), Self::Error> {
             for Pixel(point, _) in pixels {
-                assert!(
-                    self.area.contains(point),
-                    "battery pixel outside clear area: {point:?}"
-                );
+                assert!(self.area.contains(point), "battery pixel outside clear area: {point:?}");
                 self.pixels_written += 1;
             }
             Ok(())
@@ -56,7 +59,7 @@ fn battery_draw_never_writes_outside_its_clear_rectangle() {
         area: badge::battery_area(&config::BADGE, &config::LAYOUT).unwrap(),
         pixels_written: 0,
     };
-    badge::draw_battery(&mut target, &config::BADGE, &config::LAYOUT, 4.2).unwrap();
+    badge::Renderer::new(&mut target, &config::BADGE, &config::LAYOUT).draw_battery(4.2).unwrap();
     assert!(target.pixels_written > 0);
 }
 
@@ -69,7 +72,7 @@ fn invalid_battery_rectangle_is_rejected_before_drawing() {
     assert!(badge::battery_area(&config::BADGE, &layout).is_err());
     layout.column_x = config::LAYOUT.column_x;
     layout.info_y = 530;
-    let mut target = Framebuffer::new();
-    assert!(badge::draw_battery(&mut target, &config::BADGE, &layout, 3.98).is_err());
-    assert!(target.pixels.iter().all(|&pixel| pixel == 255));
+    let mut target = Framebuffer::default();
+    assert!(badge::Renderer::new(&mut target, &config::BADGE, &layout).draw_battery(3.98).is_err());
+    assert!(target.pixels().iter().all(|&pixel| pixel == 255));
 }

@@ -3,7 +3,9 @@
 ```
 nametag/
   firmware/            Rust (no_std, esp-hal) — badge settings live in src/config.rs
-  preview/             `cargo run` here renders badge.rs to preview.png on your computer
+  preview/             Desktop preview and host test crate
+    src/               Shared firmware imports, framebuffer, and PNG entry point
+    tests/             controller.rs, refresh.rs, rendering.rs
   tools/               fontgen.py (Fira Code -> e-paper font files), moon.py (the ASCII moon)
   case/                nametag_case.scad + tray.stl + bezel.stl
 ```
@@ -26,7 +28,7 @@ on your panel. Unchanged readings do not count toward the cleanup threshold.
 
 Set `REFRESH_INTERVAL_MINUTES` in `firmware/src/config.rs` to `Some(360)` for six hours,
 `Some(30)` for thirty minutes, or `None` for button-only refresh. The minute count must be nonzero.
-Set `BUTTON_WAKE_ENABLED` in `firmware/src/main.rs` to `false` for timer-only operation. Disabling both restores
+Set `BUTTON_WAKE_ENABLED` in `firmware/src/config.rs` to `false` for timer-only operation. Disabling both restores
 reset-only operation. The interval starts when entering sleep after each refresh; it is not
 a wall-clock schedule and needs neither Wi-Fi nor the external PCF8563 RTC.
 
@@ -46,8 +48,39 @@ Then run `cd preview && cargo run --locked` to see the result without flashing.
 The preview uses the same configuration, fonts, and renderer as the firmware; its simulated battery
 voltage and output path are constants at the top of `preview/src/main.rs`.
 
-The firmware flow in `src/main.rs` is: initialize hardware and PSRAM, power on the panel,
-read the battery, choose full/battery-only/no redraw, power off, then arm button/timer deep sleep.
+`src/main.rs` initializes hardware and PSRAM, runs one wake cycle through `src/app.rs`,
+logs any returned error after panel shutdown, then enters deep sleep through `src/power.rs`.
+Each wake runs the same sequence:
+
+```mermaid
+flowchart LR
+    Measure[Power on and measure] --> Plan
+    Plan -->|UpdatePlan: full or battery-only| Update[Apply update]
+    Plan -->|None: unchanged| PowerOff
+    Update -->|Success or returned error| PowerOff
+    PowerOff --> PrepareSleep --> DeepSleep
+    DeepSleep -->|Button or timer restarts main| Measure
+```
+
+The layers have separate responsibilities:
+
+| Layer | File | Responsibility |
+|---|---|---|
+| Policy | `src/refresh.rs` | Validate retained data and return `None` or a complete `UpdatePlan` |
+| Controller | `src/app.rs` | Measure, plan, apply an update if needed, and always shut down before returning |
+| Hardware | `src/hardware.rs` | Own the panel, ADC, and button; implement drawing and RTC-memory operations |
+| Rendering | `src/badge.rs` | Draw badge content, shared with the desktop preview |
+| Power | `src/power.rs` | Debounce the button, configure wake sources, retain RTC RAM, and enter deep sleep |
+
+`UpdatePlan` holds only full/battery mode, voltage, and the proposed retained reading.
+Skipping is represented by `None`, so the renderer only handles real updates. The controller
+invalidates the saved reading before changing the panel and commits it only after a successful
+flush. Fallible update operations run in a scoped closure; the controller always powers off
+after that scope returns, including on errors. Only the checked battery state survives deep sleep.
+Borrowed wake sources stay local to the final sleep call.
+Hardware errors carry typed values instead of allocated strings. Identical ADC readings skip
+formatting the battery text; other readings still compare the exact displayed text.
+
 Partial redraw physically clears the entire battery rectangle before drawing the new text,
 so shorter values erase previous digits. The rest of the badge is left on the panel.
 Even unchanged readings require a short panel power-on to sample the battery; boot, PSRAM,
@@ -55,8 +88,9 @@ and framebuffer allocation overhead also remain. Actual energy savings require m
 The battery must be read after the panel rail is powered on. Returned clear/render/flush errors
 are logged after powering off the panel, then the device sleeps.
 
-`src/badge.rs` draws the logo, QR code, header, information rows, and grayscale ramp in order,
-and exposes the same battery renderer and bounds for partial updates. `src/refresh.rs` decides
+`src/badge.rs` provides a `Renderer` that draws the logo, QR code, header, information rows,
+and grayscale ramp in order. The same drawing context handles battery-only updates, and
+`battery_area` exposes their clear bounds. `src/refresh.rs` decides
 whether to redraw, skip, or perform a full cleanup using the retained reading and wake type.
 `src/badge/font.rs` handles font decoding and text drawing. The renderer returns drawing,
 QR encoding, and basic layout errors to its caller. Battery percentage is a clamped linear
@@ -64,8 +98,18 @@ estimate between the voltage limits in `config.rs`.
 
 Host checks: run `cargo test --locked` and `cargo clippy --locked --all-targets -- -D warnings` in `preview/`.
 Firmware check: run `cargo build --release --locked` in `firmware/` with the ESP toolchain.
+All desktop tests live in `preview/tests/`: `controller.rs` checks hardware sequencing and
+failure recovery, `refresh.rs` checks policy and retained data, and `rendering.rs` checks
+pixels and bounds. The preview library imports the actual firmware modules and shares its
+framebuffer with the preview binary and rendering tests. Cargo discovers all suites automatically.
+
+Count production firmware with `cloc --exclude-dir=target firmware` from the repository root.
+This includes Rust and build/config files; desktop tests are outside the firmware directory.
+
 Host tests compare battery-only updates against full renders, check bounds and preservation
 of surrounding pixels, and exercise retained-state validation, skip decisions, and cleanup.
+They also run the actual controller with simulated hardware to check power and commit
+ordering, skipped panel writes, render/flush failures, and full recovery on the next wake.
 On hardware, test IO21 wake, a temporarily short timer interval (e.g. `Some(1)` for one minute), a press
 held through the refresh and released after sleep, and repeated sleep/wake cycles on battery.
 Also verify button-only/timer-only modes, sleep current, and displayed voltage against a

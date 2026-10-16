@@ -13,6 +13,10 @@ pub const REFRESH_INTERVAL_MINUTES: Option<u32> = Some(60);
 #[cfg(target_arch = "xtensa")]
 pub const FULL_REFRESH_AFTER_PARTIALS: Option<u32> = Some(24);
 
+/// Enable IO21 button wake. RST remains available when both wake sources are disabled.
+#[cfg(target_arch = "xtensa")]
+pub const BUTTON_WAKE_ENABLED: bool = true;
+
 pub struct BadgeConfig {
     pub user: &'static str,
     pub host: &'static str,

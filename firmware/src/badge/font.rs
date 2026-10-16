@@ -7,23 +7,15 @@ pub struct Font {
     data: &'static [u8],
 }
 
-pub static SMALL: Font = Font {
-    width: 10,
-    height: 20,
-    data: include_bytes!("../fonts/fira_10x20.bin"),
-};
-pub static TEXT: Font = Font {
-    width: 16,
-    height: 32,
-    data: include_bytes!("../fonts/fira_16x32.bin"),
-};
-pub static TITLE: Font = Font {
-    width: 32,
-    height: 64,
-    data: include_bytes!("../fonts/fira_32x64.bin"),
-};
+pub static SMALL: Font = Font::new(10, 20, include_bytes!("../fonts/fira_10x20.bin"));
+pub static TEXT: Font = Font::new(16, 32, include_bytes!("../fonts/fira_16x32.bin"));
+pub static TITLE: Font = Font::new(32, 64, include_bytes!("../fonts/fira_32x64.bin"));
 
 impl Font {
+    const fn new(width: i32, height: i32, data: &'static [u8]) -> Self {
+        Self { width, height, data }
+    }
+
     /// Draw from the top-left; newlines advance one cell. Unsupported characters use '?'.
     pub fn draw<D: DrawTarget<Color = Gray4>>(
         &self,
@@ -39,26 +31,17 @@ impl Font {
                 cursor = Point::new(origin.x, cursor.y + self.height);
                 continue;
             }
-            let index = if (' '..='~').contains(&character) {
-                character as usize - 0x20
-            } else {
-                '?' as usize - 0x20
-            };
+            let character =
+                if character.is_ascii_graphic() || character == ' ' { character } else { '?' };
+            let index = character as usize - 0x20;
             let glyph = &self.data[index * glyph_len..][..glyph_len];
-            let pixels = (0..self.width * self.height).filter_map(|offset| {
-                let packed = glyph[offset as usize / 2];
-                let coverage = if offset % 2 == 0 {
-                    packed >> 4
-                } else {
-                    packed & 15
-                };
-                // Blend ink over the white background using glyph coverage.
-                (coverage > 0).then(|| {
-                    Pixel(
-                        cursor + Point::new(offset % self.width, offset / self.width),
-                        Gray4::new(15 - coverage * (15 - ink) / 15),
-                    )
-                })
+            let coverage = glyph.iter().flat_map(|&byte| [byte >> 4, byte & 15]);
+            let visible = coverage.enumerate().filter(|&(_, coverage)| coverage > 0);
+            let pixels = visible.map(|(offset, coverage)| {
+                // Blend ink over white, leaving uncovered pixels untouched.
+                let offset = offset as i32;
+                let position = cursor + Point::new(offset % self.width, offset / self.width);
+                Pixel(position, Gray4::new(15 - coverage * (15 - ink) / 15))
             });
             target.draw_iter(pixels)?;
             cursor.x += self.width;
