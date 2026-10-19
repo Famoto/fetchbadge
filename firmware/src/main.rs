@@ -20,7 +20,7 @@ mod badge;
 mod config;
 mod hardware;
 mod power;
-mod refresh;
+mod ui;
 
 #[main]
 fn main() -> ! {
@@ -43,9 +43,15 @@ fn main() -> ! {
     let mut board = hardware::Board::new(display, battery, peripherals.GPIO21);
 
     let resume = matches!(wakeup_cause(), SleepSource::Ext1 | SleepSource::Timer);
-    if let Err(error) = app::run(&mut board, resume, config::FULL_REFRESH_AFTER_PARTIALS) {
+    if let Err(error) = app::run(
+        &mut board,
+        &config::BADGE,
+        &config::LAYOUT,
+        resume,
+        config::FULL_REFRESH_AFTER_PARTIALS,
+    ) {
         esp_println::println!("{error}");
     }
-    // Deep sleep restarts main; only the checked battery state survives in RTC RAM.
+    // Deep sleep restarts main; only the checked display state survives in RTC RAM.
     board.sleep(&mut rtc)
 }

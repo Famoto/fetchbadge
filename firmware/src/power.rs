@@ -46,7 +46,7 @@ pub fn sleep(rtc: &mut Rtc<'_>, button_pin: &mut GPIO21<'_>, delay: &Delay) -> !
         assert!(minutes > 0, "refresh interval must be greater than zero");
         TimerWakeupSource::new(Duration::from_secs(u64::from(minutes) * 60))
     });
-    // Keep borrowed wake sources local and retain the checked battery state.
+    // Keep borrowed wake sources local and retain the checked display state.
     let mut pins: [&mut dyn RtcPin; 1] = [button_pin];
     let button = match button_level {
         Some(level) => Some(Ext1WakeupSource::new(&mut pins, level)),

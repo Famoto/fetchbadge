@@ -1,5 +1,5 @@
 //! Shared, compile-time configuration for the firmware and desktop preview.
-use embedded_graphics::{geometry::Point, geometry::Size};
+use embedded_graphics::{geometry::Point, geometry::Size, primitives::Rectangle};
 
 pub const PANEL_SIZE: Size = Size::new(960, 540);
 pub const BATTERY_EMPTY_VOLTS: f32 = 3.3;
@@ -9,7 +9,7 @@ pub const BATTERY_FULL_VOLTS: f32 = 4.2;
 #[cfg(target_arch = "xtensa")]
 pub const REFRESH_INTERVAL_MINUTES: Option<u32> = Some(60);
 
-/// Full cleanup on the wake after this many successful battery-only redraws. None disables it.
+/// Full cleanup after this many successful partial updates. None disables it.
 #[cfg(target_arch = "xtensa")]
 pub const FULL_REFRESH_AFTER_PARTIALS: Option<u32> = Some(24);
 
@@ -17,17 +17,19 @@ pub const FULL_REFRESH_AFTER_PARTIALS: Option<u32> = Some(24);
 #[cfg(target_arch = "xtensa")]
 pub const BUTTON_WAKE_ENABLED: bool = true;
 
-pub struct BadgeConfig {
-    pub user: &'static str,
-    pub host: &'static str,
-    pub info: &'static [(&'static str, &'static str)],
-    pub qr_url: &'static str,
-    pub qr_caption: &'static str,
-    pub logo: &'static str,
+#[derive(Clone, Copy)]
+pub struct BadgeConfig<'a> {
+    pub user: &'a str,
+    pub host: &'a str,
+    pub info: &'a [(&'a str, &'a str)],
+    pub qr_url: &'a str,
+    pub qr_caption: &'a str,
+    pub logo: &'a str,
+    pub colours: &'a [u8],
 }
 
 // Keep "Key: value" under ~32 characters and at most 9 custom rows.
-pub const BADGE: BadgeConfig = BadgeConfig {
+pub const BADGE: BadgeConfig<'static> = BadgeConfig {
     user: "famoto",
     host: "backpack",
     info: &[
@@ -44,43 +46,68 @@ pub const BADGE: BadgeConfig = BadgeConfig {
     qr_url: "https://famoto.github.io",
     qr_caption: "<- my blog",
     logo: LOGO,
+    colours: &[0, 2, 4, 6, 8, 10, 12, 14],
 };
 
+/// Absolute view bounds and a local content anchor (the QR uses its bottom-left).
+#[derive(Clone, Copy)]
+pub struct ViewLayout {
+    pub area: Rectangle,
+    pub origin: Point,
+}
+
+#[derive(Clone, Copy)]
 pub struct LayoutConfig {
-    pub logo_origin: Point,
-    pub column_x: i32,
-    pub title_y: i32,
+    pub logo: ViewLayout,
+    pub headline: ViewLayout,
+    pub data: ViewLayout,
+    pub battery: ViewLayout,
+    pub bonus: ViewLayout,
+    pub colour_scale: ViewLayout,
     pub rule_y: i32,
     pub rule_height: u32,
-    pub info_y: i32,
     pub row_spacing: i32,
-    pub qr_x: i32,
-    pub qr_bottom: i32,
     pub qr_module_size: u32,
     pub qr_caption_gap: i32,
-    pub ramp_gap: i32,
-    pub ramp_step: i32,
-    pub ramp_block_size: Size,
+    pub colour_step: i32,
+    pub colour_block_size: Size,
     pub key_ink: u8,
     pub value_ink: u8,
 }
 
-// Gray4 ink: 0 = black, 15 = white. Coordinates are pixels from the top-left.
+// Gray4 ink: 0 = black, 15 = white. Element coordinates are relative to their view.
 pub const LAYOUT: LayoutConfig = LayoutConfig {
-    logo_origin: Point::new(30, 0),
-    column_x: 440,
-    title_y: 30,
+    logo: ViewLayout {
+        area: Rectangle::new(Point::new(0, 0), Size::new(440, 396)),
+        origin: Point::new(30, 0),
+    },
+    headline: ViewLayout {
+        area: Rectangle::new(Point::new(440, 0), Size::new(520, 116)),
+        origin: Point::new(0, 30),
+    },
+    data: ViewLayout {
+        area: Rectangle::new(Point::new(440, 116), Size::new(520, 332)),
+        origin: Point::new(0, 8),
+    },
+    battery: ViewLayout {
+        area: Rectangle::new(Point::new(440, 448), Size::new(520, 36)),
+        origin: Point::new(0, 0),
+    },
+    bonus: ViewLayout {
+        area: Rectangle::new(Point::new(0, 396), Size::new(440, 144)),
+        origin: Point::new(56, 134),
+    },
+    colour_scale: ViewLayout {
+        area: Rectangle::new(Point::new(440, 484), Size::new(520, 56)),
+        origin: Point::new(0, 14),
+    },
     rule_y: 104,
     rule_height: 4,
-    info_y: 124,
     row_spacing: 36,
-    qr_x: 56,
-    qr_bottom: 530,
     qr_module_size: 5,
     qr_caption_gap: 16,
-    ramp_gap: 14,
-    ramp_step: 52,
-    ramp_block_size: Size::new(48, 32),
+    colour_step: 52,
+    colour_block_size: Size::new(48, 32),
     key_ink: 0,
     value_ink: 4,
 };

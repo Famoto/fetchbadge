@@ -7,8 +7,8 @@ pub mod app;
 pub mod badge;
 #[path = "../../firmware/src/config.rs"]
 pub mod config;
-#[path = "../../firmware/src/refresh.rs"]
-pub mod refresh;
+#[path = "../../firmware/src/ui/mod.rs"]
+pub mod ui;
 
 mod framebuffer;
 pub use framebuffer::Framebuffer;
