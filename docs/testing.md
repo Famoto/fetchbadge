@@ -17,7 +17,9 @@ shrinking text, and empty content.
 On hardware, test IO21 wake, a temporarily short timer interval (e.g. `Some(1)` for one minute), a press
 held through the refresh and released after sleep, and repeated sleep/wake cycles on battery.
 Also verify button-only/timer-only modes, sleep current, and displayed voltage against a
-multimeter. Confirm unchanged readings cause no visible refresh, changed readings affect only
+multimeter (it is rounded to `BATTERY_STEP_VOLTS`). Log a few raw `battery.read()` values: if
+the noise spans a step, idle wakes keep redrawing and the step should be raised. Confirm
+unchanged readings cause no visible refresh, changed readings affect only
 the battery row, RST redraws everything, and `FULL_REFRESH_AFTER_PARTIALS = Some(2)` produces
 a full cleanup after two partial updates. Check ghosting over repeated partial updates.
 Restore the normal interval and cleanup threshold after testing; percentage remains an approximate

@@ -7,7 +7,8 @@ A battery-powered e-paper con badge that looks like `fastfetch` output: an ASCII
 
 It draws the whole badge on power-on or **RST**, then deep-sleeps. The **IO21** button or a
 timer (60 minutes by default) wakes it, and only the views that changed are redrawn. With the
-default content, that's just the battery row. E-paper keeps the image without power.
+default content, that's just the battery row, and only when the reading moves by a 0.05 V
+step. E-paper keeps the image without power.
 
 ## Quick start
 

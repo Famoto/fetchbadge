@@ -44,11 +44,15 @@ fn unchanged_displayed_battery_skips_updates() {
     let update = plan(saved, &state(3.97), Some(24)).unwrap();
     assert_eq!(update.kind, battery);
     assert_eq!(update.clear_areas().count(), 1, "unchanged bounds must be cleared only once");
-    let saved = plan(EMPTY, &state(3.749), None).unwrap().next_saved;
-    assert_eq!(plan(saved, &state(3.751), None).unwrap().kind, battery);
+    // Readings round to BATTERY_STEP_VOLTS: 3.775 V is the boundary between 3.75 and 3.80.
+    let saved = plan(EMPTY, &state(3.751), None).unwrap().next_saved;
+    assert!(plan(saved, &state(3.774), None).is_none());
+    assert_eq!(plan(saved, &state(3.776), None).unwrap().kind, battery);
     let saved = plan(EMPTY, &state(0.0), None).unwrap().next_saved;
     assert!(plan(saved, &state(0.0), None).is_none());
-    assert_eq!(plan(saved, &state(-0.0), None).unwrap().kind, battery);
+    for invalid in [-0.0, -1.0, f32::NAN] {
+        assert!(plan(saved, &state(invalid), None).is_none(), "{invalid} displays as 0.00V");
+    }
 }
 
 #[test]

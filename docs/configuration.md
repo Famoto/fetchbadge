@@ -22,6 +22,7 @@ voltage and output path are constants at the top of `preview/src/main.rs`.
 | `BUTTON_WAKE_ENABLED` | `true` | IO21 wake; `false` = timer-only. Both off = reset-only. |
 | `FULL_REFRESH_AFTER_PARTIALS` | `Some(24)` | Full cleanup after this many partial updates; `None` = never, `Some(0)` = always. |
 | `BATTERY_EMPTY_VOLTS` / `BATTERY_FULL_VOLTS` | 3.3 / 4.2 | Linear battery percentage range. |
+| `BATTERY_STEP_VOLTS` | 0.05 | Displayed voltage resolution; the percentage follows the rounded voltage. Raise it if ADC noise still redraws the battery row on most wakes. |
 
 Details on what each wake does are in [firmware.md](firmware.md#wake-and-refresh-behavior).
 

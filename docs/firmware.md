@@ -20,13 +20,15 @@ If flashing doesn't start: hold the IO0 (STR_IO0) button, tap RST, release.
 
 Draws the whole badge on power-on or **RST**, then deep-sleeps until the **IO21** user button
 is pressed or the configured interval elapses (currently 60 minutes). Button/timer wakes
-update only changed registered views. With the default static content, only the battery changes.
+update only changed registered views. With the default static content, only the battery changes,
+and only when its reading crosses a `BATTERY_STEP_VOLTS` step (0.05 V), so ADC noise is ignored.
 If all displayed content is unchanged, the firmware skips clearing/drawing/flushing.
 E-paper keeps the image unpowered.
 
 The registered views' bounds, content signatures, and partial refresh count are retained
-in RTC fast RAM with a version marker and checksum; no flash writes are needed. Cold boot,
-RST, invalid retained state, or a failed panel update forces a full redraw. Moving, resizing,
+in RTC fast RAM with a version marker and checksum; no flash writes are needed. `Board::new`
+clears that record on power-on and RST (any wake that is not the button or timer), so those
+redraw fully, as do invalid retained state and a failed panel update. Moving, resizing,
 registering, or deregistering a view uses partial updates, including erasing its old location.
 `FULL_REFRESH_AFTER_PARTIALS` in `firmware/src/config.rs` defaults to `Some(24)`: the wake after
 24 successful partial updates performs a full cleanup, even if content is unchanged.

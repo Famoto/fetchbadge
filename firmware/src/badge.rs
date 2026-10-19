@@ -1,6 +1,8 @@
 //! The neofetch scene is six independent views composed from ordinary UI elements.
 use crate::{
-    config::{BadgeConfig, LayoutConfig, BATTERY_EMPTY_VOLTS, BATTERY_FULL_VOLTS},
+    config::{
+        BadgeConfig, LayoutConfig, BATTERY_EMPTY_VOLTS, BATTERY_FULL_VOLTS, BATTERY_STEP_VOLTS,
+    },
     ui::{Element, Font, Pipeline, View, ViewId},
 };
 use alloc::{format, vec, vec::Vec};
@@ -72,6 +74,9 @@ fn data<'a>(badge: &BadgeConfig<'a>, layout: &LayoutConfig) -> View<'a> {
 }
 
 fn battery<'a>(layout: &LayoutConfig, volts: f32) -> View<'a> {
+    // Percent derives from the rounded voltage, so both values change at the same threshold.
+    // The float-to-int cast saturates: negative and NaN readings show 0.
+    let volts = (volts / BATTERY_STEP_VOLTS + 0.5) as u32 as f32 * BATTERY_STEP_VOLTS;
     let percent = ((volts - BATTERY_EMPTY_VOLTS) / (BATTERY_FULL_VOLTS - BATTERY_EMPTY_VOLTS)
         * 100.0)
         .clamp(0.0, 100.0) as u8;
