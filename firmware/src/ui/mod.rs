@@ -1,8 +1,46 @@
 //! A bounded view registry with one rendering and refresh transaction.
-use core::{
-    cell::Cell,
-    ops::{Deref, DerefMut},
-};
+//!
+//! A [`Pipeline`] holds up to [`MAX_VIEWS`] views in stable slots; higher IDs draw on top.
+//! Each [`View`] has panel bounds and a draw list of text, filled rectangles, and QR elements
+//! positioned relative to the view, so changing `view.area.top_left` moves all its content.
+//! Text can borrow strings or own runtime strings. The renderer knows nothing about the badge.
+//!
+//! `register(id, view)` adds or replaces a view, `get_mut(id)` edits its `area` or `content`
+//! in place, and `deregister(id)` removes it. No explicit invalidation is needed: every
+//! [`Pipeline::refresh`] compares each view's bounds and 64-bit content signature with the
+//! records retained for the panel. Text signatures use the font's `?` fallback, so text that
+//! draws identically compares equal; QR URLs keep their UTF-8.
+//!
+//! ```ignore
+//! let mut pipeline = badge::frame(&config::BADGE, &config::LAYOUT, volts)?;
+//! let area = pipeline.get(badge::DATA).unwrap().area;
+//! let status = Element::line(Point::new(0, 8), format!("Status: {status}"), Font::Text, 0);
+//! pipeline.register(badge::DATA, View::new(area, vec![status]))?;
+//! pipeline.refresh(&mut board, RefreshRequest::Changed, resume, FULL_REFRESH_AFTER_PARTIALS)?;
+//! ```
+//!
+//! | [`RefreshRequest`] | Behavior |
+//! |---|---|
+//! | `Changed` | Present changed views; return early when nothing differs |
+//! | `Views(mask)` | Force redraw of selected IDs, e.g. `1 << badge::BATTERY` |
+//! | `Region(rect)` | Invalidate any rectangle inside the draw target, including empty background |
+//! | `Full` | Force a complete framebuffer/panel clear and redraw |
+//!
+//! Regions expand to complete affected views, including overlaps and old locations; they are
+//! not pixel clips. Zero-sized regions and empty masks do nothing unless recovery or cleanup is
+//! due; out-of-bounds regions fail before any panel write. Cold boot, reset, invalid retained
+//! state, and periodic cleanup override scoped requests with a full redraw. Scoped updates
+//! commit only the records they presented, so unrelated changes stay pending.
+//!
+//! Partial updates erase the old bounds of changed or removed views and the current bounds of
+//! redrawn ones, expanding the selection until every overlapping layer is included, then redraw
+//! in ID order and flush once. Duplicate and contained clear rectangles are skipped.
+//!
+//! The whole selection is validated (bounds, ink, text size, QR encoding) before the first
+//! panel write, so validation errors leave the image and retained records intact. The
+//! pipeline invalidates retained state before changing the panel and commits only after a
+//! successful flush; a failed update therefore forces full recovery on the next refresh.
+//! [`Pipeline::draw`] renders a [`ViewSet`] mask directly, without retained state.
 use embedded_graphics::{pixelcolor::Gray4, prelude::*, primitives::Rectangle};
 
 mod font;
@@ -13,8 +51,8 @@ pub use font::Font;
 pub use refresh::RefreshRequest;
 use refresh::{FrameState, RefreshKind, SavedState, ViewState};
 pub use render::RenderError;
-use view::{covers, selected};
-pub use view::{Element, ElementSink, TextStyle, View, ViewId, ViewSet, MAX_VIEWS};
+use view::{covers, overlaps, selected};
+pub use view::{Element, TextStyle, View, ViewId, ViewSet, MAX_VIEWS};
 
 /// Display and retained storage operations. The caller manages panel power.
 pub trait Backend {
@@ -32,19 +70,10 @@ pub trait Backend {
 #[derive(Clone)]
 pub struct Pipeline<'a> {
     views: [Option<View<'a>>; MAX_VIEWS],
-    state: FrameState,
-    dirty: Cell<ViewSet>,
-    observed: Cell<Option<u64>>,
 }
 impl Default for Pipeline<'_> {
     fn default() -> Self {
-        Self {
-            views: core::array::from_fn(|_| None),
-            state: [ViewState::EMPTY; MAX_VIEWS],
-            // A new scene must also detect views removed since the last wake.
-            dirty: Cell::new(ViewSet::MAX),
-            observed: Cell::new(None),
-        }
+        Self { views: core::array::from_fn(|_| None) }
     }
 }
 impl<'a> Pipeline<'a> {
@@ -57,36 +86,20 @@ impl<'a> Pipeline<'a> {
         id: ViewId,
         view: View<'a>,
     ) -> Result<Option<View<'a>>, &'static str> {
-        let slot = self.views.get_mut(id).ok_or("view ID exceeds capacity")?;
-        let state = view.state();
-        if self.state[id] != state {
-            self.dirty.set(self.dirty.get() | (1 << id));
-        }
-        self.state[id] = state;
-        Ok(slot.replace(view))
+        Ok(self.views.get_mut(id).ok_or("view ID exceeds capacity")?.replace(view))
     }
     pub fn deregister(&mut self, id: ViewId) -> Result<Option<View<'a>>, &'static str> {
-        let old = self.views.get_mut(id).ok_or("view ID exceeds capacity")?.take();
-        if old.is_some() {
-            self.state[id] = ViewState::EMPTY;
-            self.dirty.set(self.dirty.get() | (1 << id));
-        }
-        Ok(old)
+        Ok(self.views.get_mut(id).ok_or("view ID exceeds capacity")?.take())
     }
     pub fn get(&self, id: ViewId) -> Option<&View<'a>> {
         self.views.get(id)?.as_ref()
     }
-    /// Dropping the guard updates only this view's cached signature and redraw request.
-    pub fn get_mut(&mut self, id: ViewId) -> Option<ViewMut<'_, 'a>> {
-        Some(ViewMut {
-            view: self.views.get_mut(id)?.as_mut()?,
-            state: &mut self.state[id],
-            dirty: &self.dirty,
-            bit: 1 << id,
-        })
+    /// Edits need no invalidation: refresh compares every view's signature with the panel record.
+    pub fn get_mut(&mut self, id: ViewId) -> Option<&mut View<'a>> {
+        self.views.get_mut(id)?.as_mut()
     }
     pub fn state(&self) -> FrameState {
-        self.state
+        core::array::from_fn(|id| self.views[id].as_ref().map_or(ViewState::EMPTY, View::state))
     }
 
     /// Present a refresh scope on a powered panel. Recovery and cleanup override the scope.
@@ -104,19 +117,8 @@ impl<'a> Pipeline<'a> {
             }
         }
         let saved = backend.load_saved();
-        // Dirty bits are trusted only for the display state last seen by this registry.
-        let candidates = if self.observed.get() == Some(saved.checksum) {
-            self.dirty.get()
-        } else {
-            ViewSet::MAX
-        };
-        let Some(update) =
-            refresh::plan_request(saved, resume, &self.state, full_after, request, candidates)
+        let Some(update) = refresh::plan_request(saved, resume, &self.state(), full_after, request)
         else {
-            if request == RefreshRequest::Changed {
-                self.dirty.set(0);
-                self.observed.set(Some(saved.checksum));
-            }
             return Ok(());
         };
         let views = update.kind.views();
@@ -138,35 +140,6 @@ impl<'a> Pipeline<'a> {
         prepared.draw(backend.target())?;
         backend.flush().map_err(|error| RenderError::Target("display flush", error))?;
         backend.store_saved(update.next_saved);
-        self.dirty.set((self.dirty.get() | candidates) & !update.applied);
-        self.observed.set(Some(update.next_saved.checksum));
         Ok(())
-    }
-}
-
-pub struct ViewMut<'p, 'a> {
-    view: &'p mut View<'a>,
-    state: &'p mut ViewState,
-    dirty: &'p Cell<ViewSet>,
-    bit: ViewSet,
-}
-impl<'a> Deref for ViewMut<'_, 'a> {
-    type Target = View<'a>;
-    fn deref(&self) -> &Self::Target {
-        self.view
-    }
-}
-impl DerefMut for ViewMut<'_, '_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.view
-    }
-}
-impl Drop for ViewMut<'_, '_> {
-    fn drop(&mut self) {
-        let state = self.view.state();
-        if *self.state != state {
-            *self.state = state;
-            self.dirty.set(self.dirty.get() | self.bit);
-        }
     }
 }

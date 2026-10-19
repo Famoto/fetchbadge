@@ -69,12 +69,8 @@ fn failed_awake_updates_invalidate_state_and_leave_shutdown_to_the_caller() {
         frame.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
         // Remove a view so recovery must erase stale pixels as well as redraw.
         frame.deregister(badge::DATA).unwrap();
-        frame.get_mut(badge::LOGO).unwrap().set_content(vec![Element::text(
-            Point::new(30, 0),
-            "+",
-            Font::Small,
-            0,
-        )]);
+        frame.get_mut(badge::LOGO).unwrap().content =
+            vec![Element::text(Point::new(30, 0), "+", Font::Small, 0)];
         board.failure = Some(failure);
         assert_failure(frame.refresh(&mut board, RefreshRequest::Changed, true, None), failure);
         assert!(board.powered);
@@ -232,14 +228,10 @@ fn qr_encoding_failure_preserves_display_state_before_any_panel_writes() {
     let saved = board.saved;
     let pixels = board.pixels.pixels().to_vec();
 
-    pipeline.get_mut(badge::LOGO).unwrap().set_content(vec![Element::text(
-        Point::new(30, 0),
-        "+",
-        Font::Small,
-        0,
-    )]);
+    pipeline.get_mut(badge::LOGO).unwrap().content =
+        vec![Element::text(Point::new(30, 0), "+", Font::Small, 0)];
     let mut invalid_qr = pipeline.get(badge::BONUS).unwrap().clone();
-    if let Element::Qr { url, .. } = &mut invalid_qr.content_mut()[0] {
+    if let Element::Qr { url, .. } = &mut invalid_qr.content[0] {
         *url = "x".repeat(10_000).into();
     }
     pipeline.register(15, invalid_qr).unwrap();

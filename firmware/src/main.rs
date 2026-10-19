@@ -19,7 +19,6 @@ mod app;
 mod badge;
 mod config;
 mod hardware;
-mod power;
 mod ui;
 
 #[main]

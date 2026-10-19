@@ -1,7 +1,7 @@
 //! Diff registered views, including old bounds, and retain only checked integer state.
-use super::{covers, selected, ViewSet, MAX_VIEWS};
+use super::{covers, overlaps, selected, ViewSet, MAX_VIEWS};
 use core::hash::{Hash, Hasher};
-use embedded_graphics::{prelude::*, primitives::Rectangle};
+use embedded_graphics::primitives::Rectangle;
 
 /// Integer-only records are safe to load from unchecked RTC memory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -11,8 +11,7 @@ pub struct ViewState {
     pub content: u64,
 }
 impl ViewState {
-    pub const EMPTY: Self =
-        Self { active: 0, area: Rectangle::new(Point::zero(), Size::zero()), content: 0 };
+    pub const EMPTY: Self = Self { active: 0, area: Rectangle::zero(), content: 0 };
 }
 pub type FrameState = [ViewState; MAX_VIEWS];
 
@@ -36,8 +35,7 @@ impl SavedState {
     }
 }
 // Bump when retained records or render semantics change.
-const MAGIC: u32 = 0x4241_5406;
-const EMPTY_RECT: Rectangle = Rectangle::new(Point::zero(), Size::zero());
+const MAGIC: u32 = 0x4241_5407;
 
 /// Regions are invalidations: complete intersecting views and old bounds may enlarge them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,8 +68,6 @@ impl RefreshKind {
 pub struct UpdatePlan {
     pub kind: RefreshKind,
     clear: [Rectangle; MAX_VIEWS * 2 + 1],
-    /// Records fully presented by this update, including removed views.
-    pub applied: ViewSet,
     pub next_saved: SavedState,
 }
 impl UpdatePlan {
@@ -82,7 +78,7 @@ impl UpdatePlan {
                     && covers(other, area)
                     && (other != area || other_index < index)
             });
-            (area.size.width > 0 && area.size.height > 0 && !redundant).then_some(area)
+            (!area.is_zero_sized() && !redundant).then_some(area)
         })
     }
 }
@@ -93,7 +89,7 @@ pub fn plan(
     current: &FrameState,
     full_after: Option<u32>,
 ) -> Option<UpdatePlan> {
-    plan_request(saved, resume, current, full_after, RefreshRequest::Changed, ViewSet::MAX)
+    plan_request(saved, resume, current, full_after, RefreshRequest::Changed)
 }
 
 pub(super) fn plan_request(
@@ -102,29 +98,26 @@ pub(super) fn plan_request(
     current: &FrameState,
     full_after: Option<u32>,
     request: RefreshRequest,
-    candidates: ViewSet,
 ) -> Option<UpdatePlan> {
     let full = request == RefreshRequest::Full
         || !resume
         || !saved.valid()
         || full_after.is_some_and(|limit| saved.partials >= limit);
     let requested = match request {
-        RefreshRequest::Changed => selected(candidates)
+        RefreshRequest::Changed => (0..MAX_VIEWS)
             .fold(0, |mask, id| mask | if saved.frame[id] != current[id] { 1 << id } else { 0 }),
         RefreshRequest::Views(views) => views,
         RefreshRequest::Region(_) | RefreshRequest::Full => 0,
     };
     if !full
         && requested == 0
-        && !matches!(request, RefreshRequest::Region(area) if area.size.width > 0 && area.size.height > 0)
+        && !matches!(request, RefreshRequest::Region(area) if !area.is_zero_sized())
     {
         return None;
     }
-    let mut clear = [EMPTY_RECT; MAX_VIEWS * 2 + 1];
+    let mut clear = [Rectangle::zero(); MAX_VIEWS * 2 + 1];
     let mut frame = *current;
-    let applied;
     let kind = if full {
-        applied = ViewSet::MAX;
         RefreshKind::Full
     } else {
         let mut affected = requested;
@@ -153,10 +146,9 @@ pub(super) fn plan_request(
                 break;
             }
         }
-        if !clear.iter().any(|area| area.size.width > 0 && area.size.height > 0) {
+        if clear.iter().all(Rectangle::is_zero_sized) {
             return None;
         }
-        applied = affected;
         frame = saved.frame;
         let mut draw = 0;
         for id in selected(affected) {
@@ -178,20 +170,7 @@ pub(super) fn plan_request(
         checksum: 0,
     };
     next_saved.checksum = next_saved.checksum();
-    Some(UpdatePlan { kind, clear, applied, next_saved })
-}
-
-fn overlaps(first: Rectangle, second: Rectangle) -> bool {
-    let (x, y) = (i64::from(first.top_left.x), i64::from(first.top_left.y));
-    let (left, top) = (i64::from(second.top_left.x), i64::from(second.top_left.y));
-    first.size.width > 0
-        && first.size.height > 0
-        && second.size.width > 0
-        && second.size.height > 0
-        && x < left + i64::from(second.size.width)
-        && left < x + i64::from(first.size.width)
-        && y < top + i64::from(second.size.height)
-        && top < y + i64::from(first.size.height)
+    Some(UpdatePlan { kind, clear, next_saved })
 }
 
 pub(super) struct Fingerprint(u64);

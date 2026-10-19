@@ -8,6 +8,11 @@ pub const BATTERY_FULL_VOLTS: f32 = 4.2;
 /// Firmware refresh interval in minutes. None disables the timer; Some must be nonzero.
 #[cfg(target_arch = "xtensa")]
 pub const REFRESH_INTERVAL_MINUTES: Option<u32> = Some(60);
+#[cfg(target_arch = "xtensa")]
+const _: () = assert!(
+    !matches!(REFRESH_INTERVAL_MINUTES, Some(0)),
+    "refresh interval must be greater than zero"
+);
 
 /// Full cleanup after this many successful partial updates. None disables it.
 #[cfg(target_arch = "xtensa")]

@@ -166,7 +166,7 @@ fn content_and_position_can_change_in_place() {
         )
         .unwrap();
     let mut changed = original.clone();
-    changed.get_mut(8).unwrap().content_mut()[0] =
+    changed.get_mut(8).unwrap().content[0] =
         Element::line(Point::zero(), format!("{} tasks", 3), Font::Text, 0);
     assert_partial(&original, &changed, &[8]);
     let moved_from = changed.clone();
@@ -238,7 +238,7 @@ fn frame_factories_borrow_content_without_retaining_the_config_wrapper() {
     let rows = [("Status", status.as_str())];
     let pipeline = frame_from_rows(&rows);
     assert!(matches!(
-        &pipeline.get(badge::DATA).unwrap().content()[1],
+        &pipeline.get(badge::DATA).unwrap().content[1],
         Element::Text { text, .. } if text == "ready"
     ));
     render(&pipeline);
