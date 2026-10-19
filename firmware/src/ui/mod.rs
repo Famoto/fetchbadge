@@ -16,7 +16,7 @@
 //! let area = pipeline.get(badge::DATA).unwrap().area;
 //! let status = Element::line(Point::new(0, 8), format!("Status: {status}"), Font::Text, 0);
 //! pipeline.register(badge::DATA, View::new(area, vec![status]))?;
-//! pipeline.refresh(&mut board, RefreshRequest::Changed, resume, FULL_REFRESH_AFTER_PARTIALS)?;
+//! pipeline.refresh(&mut board, RefreshRequest::Changed, FULL_REFRESH_AFTER_PARTIALS)?;
 //! ```
 //!
 //! | [`RefreshRequest`] | Behavior |
@@ -28,8 +28,8 @@
 //!
 //! Regions expand to complete affected views, including overlaps and old locations; they are
 //! not pixel clips. Zero-sized regions and empty masks do nothing unless recovery or cleanup is
-//! due; out-of-bounds regions fail before any panel write. Cold boot, reset, invalid retained
-//! state, and periodic cleanup override scoped requests with a full redraw. Scoped updates
+//! due; out-of-bounds regions fail before any panel write. Missing or invalid retained state
+//! (the hardware clears it on power-on and reset) and periodic cleanup override scoped requests with a full redraw. Scoped updates
 //! commit only the records they presented, so unrelated changes stay pending.
 //!
 //! Partial updates erase the old bounds of changed or removed views and the current bounds of
@@ -108,7 +108,6 @@ impl<'a> Pipeline<'a> {
         &self,
         backend: &mut B,
         request: RefreshRequest,
-        resume: bool,
         full_after: Option<u32>,
     ) -> Result<(), RenderError<B::Error>> {
         if let RefreshRequest::Region(area) = request {
@@ -117,8 +116,7 @@ impl<'a> Pipeline<'a> {
             }
         }
         let saved = backend.load_saved();
-        let Some(update) = refresh::plan_request(saved, resume, &self.state(), full_after, request)
-        else {
+        let Some(update) = refresh::plan_request(saved, &self.state(), full_after, request) else {
             return Ok(());
         };
         let views = update.kind.views();

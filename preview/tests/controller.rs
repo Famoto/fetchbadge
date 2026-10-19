@@ -14,15 +14,9 @@ fn assert_failure(result: Result<(), RenderError<Failure>>, expected: Failure) {
     assert!(matches!(result, Err(RenderError::Target(_, failure)) if failure == expected));
 }
 
-fn plan(
-    saved: SavedState,
-    resume: bool,
-    volts: f32,
-    full_after: Option<u32>,
-) -> Option<UpdatePlan> {
+fn plan(saved: SavedState, volts: f32, full_after: Option<u32>) -> Option<UpdatePlan> {
     refresh::plan(
         saved,
-        resume,
         &badge::frame(&config::BADGE, &config::LAYOUT, volts).unwrap().state(),
         full_after,
     )
@@ -33,7 +27,7 @@ fn prepared_frames_can_update_repeatedly_without_another_measure_or_shutdown() {
     let mut board = TestBoard::new(refresh::EMPTY, 3.98);
     let volts = board.measure();
     let frame = badge::frame(&config::BADGE, &config::LAYOUT, volts).unwrap();
-    frame.refresh(&mut board, RefreshRequest::Changed, true, Some(24)).unwrap();
+    frame.refresh(&mut board, RefreshRequest::Changed, Some(24)).unwrap();
     assert!(board.events.contains(&Event::Clear(None)));
     for (status, changed) in [("ready", true), ("ready", false), ("busy", true)] {
         let status = String::from(status);
@@ -41,7 +35,7 @@ fn prepared_frames_can_update_repeatedly_without_another_measure_or_shutdown() {
         let badge = config::BadgeConfig { info: &rows, ..config::BADGE };
         let frame = badge::frame(&badge, &config::LAYOUT, volts).unwrap();
         board.events.clear();
-        frame.refresh(&mut board, RefreshRequest::Changed, true, Some(24)).unwrap();
+        frame.refresh(&mut board, RefreshRequest::Changed, Some(24)).unwrap();
         assert!(board.powered);
         if changed {
             assert!(board.events.contains(&Event::Clear(Some(config::LAYOUT.data.area))));
@@ -66,18 +60,18 @@ fn failed_awake_updates_invalidate_state_and_leave_shutdown_to_the_caller() {
     for failure in [Failure::Clear, Failure::Draw, Failure::Flush] {
         let mut board = TestBoard::new(refresh::EMPTY, 3.98);
         let mut frame = badge::frame(&config::BADGE, &config::LAYOUT, board.measure()).unwrap();
-        frame.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+        frame.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
         // Remove a view so recovery must erase stale pixels as well as redraw.
         frame.deregister(badge::DATA).unwrap();
         frame.get_mut(badge::LOGO).unwrap().content =
             vec![Element::text(Point::new(30, 0), "+", Font::Small, 0)];
         board.failure = Some(failure);
-        assert_failure(frame.refresh(&mut board, RefreshRequest::Changed, true, None), failure);
+        assert_failure(frame.refresh(&mut board, RefreshRequest::Changed, None), failure);
         assert!(board.powered);
         assert_eq!(board.saved, refresh::EMPTY);
         board.failure = None;
         board.events.clear();
-        frame.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+        frame.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
         assert!(board.events.contains(&Event::Clear(None)));
         board.assert_full_render(&frame);
         board.power_off();
@@ -86,17 +80,16 @@ fn failed_awake_updates_invalidate_state_and_leave_shutdown_to_the_caller() {
 
 #[test]
 fn successful_updates_commit_after_flush_then_shut_down() {
-    let saved = plan(refresh::EMPTY, false, 3.98, Some(24)).unwrap().next_saved;
-    for (previous, resume, full_after, kind) in [
-        (refresh::EMPTY, true, Some(24), RefreshKind::Full),
-        (saved, false, Some(24), RefreshKind::Full),
-        (saved, true, Some(24), RefreshKind::Partial(1 << badge::BATTERY)),
-        (saved, true, Some(0), RefreshKind::Full),
+    let saved = plan(refresh::EMPTY, 3.98, Some(24)).unwrap().next_saved;
+    for (previous, full_after, kind) in [
+        (refresh::EMPTY, Some(24), RefreshKind::Full),
+        (saved, Some(24), RefreshKind::Partial(1 << badge::BATTERY)),
+        (saved, Some(0), RefreshKind::Full),
     ] {
         let mut board = TestBoard::new(previous, 3.97);
-        let update = plan(previous, resume, board.volts, full_after).unwrap();
+        let update = plan(previous, board.volts, full_after).unwrap();
         assert_eq!(update.kind, kind);
-        run(&mut board, &config::BADGE, &config::LAYOUT, resume, full_after).unwrap();
+        run(&mut board, &config::BADGE, &config::LAYOUT, full_after).unwrap();
         assert_eq!(board.saved, update.next_saved);
         let mut expected = vec![Event::PowerOn, Event::Measure, Event::Invalidate];
         match kind {
@@ -112,11 +105,11 @@ fn successful_updates_commit_after_flush_then_shut_down() {
 
 #[test]
 fn unchanged_reading_preserves_retained_state_and_skips_panel_writes() {
-    let saved = plan(refresh::EMPTY, false, 3.98, Some(24)).unwrap().next_saved;
-    let saved = plan(saved, true, 3.97, Some(24)).unwrap().next_saved;
+    let saved = plan(refresh::EMPTY, 3.98, Some(24)).unwrap().next_saved;
+    let saved = plan(saved, 3.97, Some(24)).unwrap().next_saved;
     for volts in [3.97, 3.971] {
         let mut board = TestBoard::new(saved, volts);
-        run(&mut board, &config::BADGE, &config::LAYOUT, true, Some(24)).unwrap();
+        run(&mut board, &config::BADGE, &config::LAYOUT, Some(24)).unwrap();
         assert_eq!(board.saved, saved);
         assert_eq!(board.events, vec![Event::PowerOn, Event::Measure, Event::PowerOff]);
     }
@@ -124,7 +117,7 @@ fn unchanged_reading_preserves_retained_state_and_skips_panel_writes() {
 
 #[test]
 fn failed_updates_shut_down_without_committing_and_recover_fully_next_wake() {
-    let saved = plan(refresh::EMPTY, false, 3.98, Some(24)).unwrap().next_saved;
+    let saved = plan(refresh::EMPTY, 3.98, Some(24)).unwrap().next_saved;
     let value = String::from("ready");
     let rows = [("Status", value.as_str())];
     let badge = config::BadgeConfig { info: &rows, ..config::BADGE };
@@ -132,14 +125,14 @@ fn failed_updates_shut_down_without_committing_and_recover_fully_next_wake() {
         for failure in [Failure::Clear, Failure::Draw, Failure::Flush] {
             let mut board = TestBoard::new(previous, 3.97);
             board.failure = Some(failure);
-            assert_failure(run(&mut board, &badge, &config::LAYOUT, true, Some(24)), failure);
+            assert_failure(run(&mut board, &badge, &config::LAYOUT, Some(24)), failure);
             assert!(!board.powered, "return errors only after panel shutdown");
             assert_eq!(board.saved, refresh::EMPTY);
             assert_eq!(board.events.last(), Some(&Event::PowerOff));
             assert!(!board.events.contains(&Event::Commit));
             board.failure = None;
             board.events.clear();
-            run(&mut board, &badge, &config::LAYOUT, true, Some(24)).unwrap();
+            run(&mut board, &badge, &config::LAYOUT, Some(24)).unwrap();
             assert!(board.events.contains(&Event::Clear(None)));
             assert_ne!(board.saved, refresh::EMPTY);
             board.assert_full_render(&badge::frame(&badge, &config::LAYOUT, 3.97).unwrap());
@@ -149,12 +142,12 @@ fn failed_updates_shut_down_without_committing_and_recover_fully_next_wake() {
 
 #[test]
 fn runtime_data_and_battery_update_together_with_one_commit() {
-    let saved = plan(refresh::EMPTY, false, 3.98, Some(24)).unwrap().next_saved;
+    let saved = plan(refresh::EMPTY, 3.98, Some(24)).unwrap().next_saved;
     let value = String::from("ready");
     let rows = [("Status", value.as_str())];
     let badge = config::BadgeConfig { info: &rows, ..config::BADGE };
     let mut board = TestBoard::new(saved, 3.97);
-    run(&mut board, &badge, &config::LAYOUT, true, Some(24)).unwrap();
+    run(&mut board, &badge, &config::LAYOUT, Some(24)).unwrap();
     assert_eq!(
         board.events,
         [
@@ -171,7 +164,7 @@ fn runtime_data_and_battery_update_together_with_one_commit() {
     );
     assert_ne!(board.saved, saved);
     board.events.clear();
-    run(&mut board, &badge, &config::LAYOUT, true, Some(24)).unwrap();
+    run(&mut board, &badge, &config::LAYOUT, Some(24)).unwrap();
     assert_eq!(board.events, [Event::PowerOn, Event::Measure, Event::PowerOff]);
 }
 
@@ -179,12 +172,12 @@ fn runtime_data_and_battery_update_together_with_one_commit() {
 fn deregistering_the_last_view_still_clears_flushes_and_commits() {
     let mut board = TestBoard::new(refresh::EMPTY, 3.98);
     let mut pipeline = badge::frame(&config::BADGE, &config::LAYOUT, board.measure()).unwrap();
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     for id in 0..6 {
         pipeline.deregister(id).unwrap();
     }
     board.events.clear();
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(
         board.events.iter().filter(|event| matches!(event, Event::Clear(Some(_)))).count(),
         6
@@ -193,7 +186,7 @@ fn deregistering_the_last_view_still_clears_flushes_and_commits() {
     assert_eq!(board.events.iter().filter(|event| matches!(event, Event::Flush)).count(), 1);
     board.assert_full_render(&pipeline);
     board.events.clear();
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert!(board.events.is_empty());
     board.power_off();
 }
@@ -201,22 +194,20 @@ fn deregistering_the_last_view_still_clears_flushes_and_commits() {
 #[test]
 fn invalid_row_spacing_preserves_display_state_and_powers_off() {
     let mut board = TestBoard::new(refresh::EMPTY, 3.98);
-    run(&mut board, &config::BADGE, &config::LAYOUT, false, None).unwrap();
+    run(&mut board, &config::BADGE, &config::LAYOUT, None).unwrap();
     let saved = board.saved;
     let pixels = board.pixels.pixels().to_vec();
-    for resume in [false, true] {
-        for spacing in [0, 16] {
-            let layout = config::LayoutConfig { row_spacing: spacing, ..config::LAYOUT };
-            board.events.clear();
-            assert!(matches!(
-                run(&mut board, &config::BADGE, &layout, resume, None),
-                Err(RenderError::InvalidLayout("information rows overlap"))
-            ));
-            assert_eq!(board.saved, saved);
-            assert_eq!(board.pixels.pixels(), pixels);
-            assert!(!board.powered);
-            assert_eq!(board.events, vec![Event::PowerOn, Event::Measure, Event::PowerOff]);
-        }
+    for spacing in [0, 16] {
+        let layout = config::LayoutConfig { row_spacing: spacing, ..config::LAYOUT };
+        board.events.clear();
+        assert!(matches!(
+            run(&mut board, &config::BADGE, &layout, None),
+            Err(RenderError::InvalidLayout("information rows overlap"))
+        ));
+        assert_eq!(board.saved, saved);
+        assert_eq!(board.pixels.pixels(), pixels);
+        assert!(!board.powered);
+        assert_eq!(board.events, vec![Event::PowerOn, Event::Measure, Event::PowerOff]);
     }
 }
 
@@ -224,7 +215,7 @@ fn invalid_row_spacing_preserves_display_state_and_powers_off() {
 fn qr_encoding_failure_preserves_display_state_before_any_panel_writes() {
     let mut board = TestBoard::new(refresh::EMPTY, 3.98);
     let mut pipeline = badge::frame(&config::BADGE, &config::LAYOUT, board.measure()).unwrap();
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     let saved = board.saved;
     let pixels = board.pixels.pixels().to_vec();
 
@@ -237,7 +228,7 @@ fn qr_encoding_failure_preserves_display_state_before_any_panel_writes() {
     pipeline.register(15, invalid_qr).unwrap();
     board.events.clear();
     assert!(matches!(
-        pipeline.refresh(&mut board, RefreshRequest::Changed, true, None),
+        pipeline.refresh(&mut board, RefreshRequest::Changed, None),
         Err(RenderError::QrEncoding)
     ));
     assert_eq!(board.saved, saved);
@@ -251,17 +242,15 @@ fn invalid_content_preserves_panel_and_saved_state_before_shutting_down() {
     let mut board = TestBoard::new(refresh::EMPTY, 3.98);
     let long = "x".repeat(40);
     let invalid = config::BadgeConfig { qr_caption: &long, ..config::BADGE };
-    for resume in [false, true] {
-        run(&mut board, &config::BADGE, &config::LAYOUT, false, None).unwrap();
-        let pixels = board.pixels.pixels().to_vec();
-        let saved = board.saved;
-        board.events.clear();
-        assert!(matches!(
-            run(&mut board, &invalid, &config::LAYOUT, resume, None),
-            Err(RenderError::InvalidLayout(_))
-        ));
-        assert_eq!(board.saved, saved);
-        assert_eq!(board.pixels.pixels(), pixels);
-        assert_eq!(board.events, vec![Event::PowerOn, Event::Measure, Event::PowerOff]);
-    }
+    run(&mut board, &config::BADGE, &config::LAYOUT, None).unwrap();
+    let pixels = board.pixels.pixels().to_vec();
+    let saved = board.saved;
+    board.events.clear();
+    assert!(matches!(
+        run(&mut board, &invalid, &config::LAYOUT, None),
+        Err(RenderError::InvalidLayout(_))
+    ));
+    assert_eq!(board.saved, saved);
+    assert_eq!(board.pixels.pixels(), pixels);
+    assert_eq!(board.events, vec![Event::PowerOn, Event::Measure, Event::PowerOff]);
 }

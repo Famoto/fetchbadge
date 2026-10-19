@@ -85,22 +85,19 @@ impl UpdatePlan {
 
 pub fn plan(
     saved: SavedState,
-    resume: bool,
     current: &FrameState,
     full_after: Option<u32>,
 ) -> Option<UpdatePlan> {
-    plan_request(saved, resume, current, full_after, RefreshRequest::Changed)
+    plan_request(saved, current, full_after, RefreshRequest::Changed)
 }
 
 pub(super) fn plan_request(
     saved: SavedState,
-    resume: bool,
     current: &FrameState,
     full_after: Option<u32>,
     request: RefreshRequest,
 ) -> Option<UpdatePlan> {
     let full = request == RefreshRequest::Full
-        || !resume
         || !saved.valid()
         || full_after.is_some_and(|limit| saved.partials >= limit);
     let requested = match request {

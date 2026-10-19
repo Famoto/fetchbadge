@@ -8,8 +8,9 @@ use esp_hal::{
     peripherals::{GPIO14, GPIO21},
     rtc_cntl::{
         sleep::{Ext1WakeupSource, RtcSleepConfig, TimerWakeupSource, WakeSource, WakeupLevel},
-        Rtc,
+        wakeup_cause, Rtc,
     },
+    system::SleepSource,
 };
 use lilygo_epd47::{Battery, Display, DrawMode, Error as DisplayError};
 
@@ -45,7 +46,12 @@ impl<'d> Board<'d> {
         battery: Battery<'d, GPIO14<'d>>,
         button_pin: GPIO21<'d>,
     ) -> Self {
-        Self { display, battery, button_pin, delay: Delay::new() }
+        let mut board = Self { display, battery, button_pin, delay: Delay::new() };
+        // RST keeps RTC RAM, but power-on and reset must redraw everything.
+        if !matches!(wakeup_cause(), SleepSource::Ext1 | SleepSource::Timer) {
+            ui::Backend::store_saved(&mut board, refresh::EMPTY);
+        }
+        board
     }
 
     /// Configure the button and timer wake sources, retain RTC fast RAM, and deep-sleep.

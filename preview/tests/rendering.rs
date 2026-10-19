@@ -18,8 +18,8 @@ fn render(pipeline: &Pipeline<'_>) -> Framebuffer {
 }
 
 fn assert_partial(old: &Pipeline<'_>, new: &Pipeline<'_>, expected: &[usize]) {
-    let saved = refresh::plan(refresh::EMPTY, false, &old.state(), None).unwrap().next_saved;
-    let update = refresh::plan(saved, true, &new.state(), None).unwrap();
+    let saved = refresh::plan(refresh::EMPTY, &old.state(), None).unwrap().next_saved;
+    let update = refresh::plan(saved, &new.state(), None).unwrap();
     assert!(matches!(update.kind, RefreshKind::Partial(_)));
     assert_eq!(update.kind.views(), expected.iter().fold(0, |mask, id| mask | (1 << id)));
     let mut display = TestBoard::new(saved, 3.98);
@@ -27,7 +27,7 @@ fn assert_partial(old: &Pipeline<'_>, new: &Pipeline<'_>, expected: &[usize]) {
     display.pixels = render(old);
     let before = display.pixels.pixels().to_vec();
     let areas: Vec<_> = update.clear_areas().collect();
-    new.refresh(&mut display, RefreshRequest::Changed, true, None).unwrap();
+    new.refresh(&mut display, RefreshRequest::Changed, None).unwrap();
     assert_eq!(display.saved, update.next_saved);
     display.assert_full_render(new);
     let target = display.pixels;
@@ -41,7 +41,7 @@ fn assert_partial(old: &Pipeline<'_>, new: &Pipeline<'_>, expected: &[usize]) {
             );
         }
     }
-    assert!(refresh::plan(update.next_saved, true, &new.state(), None).is_none());
+    assert!(refresh::plan(update.next_saved, &new.state(), None).is_none());
 }
 
 fn solid(x: i32, y: i32, width: u32, height: u32, ink: u8) -> View<'static> {
