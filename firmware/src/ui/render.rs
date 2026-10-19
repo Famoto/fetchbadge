@@ -120,6 +120,7 @@ impl Pipeline<'_> {
                         module_size,
                         url,
                         caption,
+                        caption_font,
                         caption_gap,
                         ink,
                         caption_ink,
@@ -128,9 +129,9 @@ impl Pipeline<'_> {
                             PreparedQr::new(url, *bottom_left, *module_size, *ink, bounds)?;
                         prepared.prepare_text(
                             view.area,
-                            qr.caption_position(*caption_gap)?,
+                            qr.caption_position(*caption_gap, *caption_font)?,
                             caption,
-                            TextStyle { font: Font::Text, ink: *caption_ink, single_line: true },
+                            TextStyle { font: *caption_font, ink: *caption_ink, single_line: true },
                         )?;
                         qr.origin += view.area.top_left;
                         prepared.elements.push(PreparedElement::Qr(qr));
@@ -194,11 +195,12 @@ impl PreparedQr {
         Ok(Self { origin, size, module_size, modules, ink })
     }
 
-    fn caption_position<E>(&self, gap: i32) -> Result<Point, RenderError<E>> {
+    /// Right of the code, vertically centred on it.
+    fn caption_position<E>(&self, gap: i32, font: Font) -> Result<Point, RenderError<E>> {
         let side = self.size * self.module_size;
         let x = i32::try_from(i64::from(self.origin.x) + i64::from(side) + i64::from(gap))
             .map_err(|_| RenderError::InvalidLayout("QR caption coordinates overflow"))?;
-        Ok(Point::new(x, self.origin.y + side / 2 - Font::Text.size().height as i32 / 2))
+        Ok(Point::new(x, self.origin.y + side / 2 - font.size().height as i32 / 2))
     }
 
     fn draw<D: DrawTarget<Color = Gray4>>(&self, target: &mut D) -> Result<(), D::Error> {

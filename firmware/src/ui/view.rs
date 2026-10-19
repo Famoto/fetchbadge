@@ -38,6 +38,7 @@ pub enum Element<'a> {
         module_size: u32,
         url: Cow<'a, str>,
         caption: Cow<'a, str>,
+        caption_font: Font,
         caption_gap: i32,
         ink: u8,
         caption_ink: u8,
@@ -137,12 +138,21 @@ impl Hash for Element<'_> {
                 1u8.hash(hash);
                 (area, ink).hash(hash);
             }
-            Self::Qr { bottom_left, module_size, url, caption, caption_gap, ink, caption_ink } => {
+            Self::Qr {
+                bottom_left,
+                module_size,
+                url,
+                caption,
+                caption_font,
+                caption_gap,
+                ink,
+                caption_ink,
+            } => {
                 2u8.hash(hash);
                 (bottom_left, module_size, url).hash(hash);
                 DisplayText(hash).write_str(caption).expect("signature formatting");
                 hash.write_u8(0);
-                (caption_gap, ink, caption_ink).hash(hash);
+                (caption_font, caption_gap, ink, caption_ink).hash(hash);
             }
         }
     }

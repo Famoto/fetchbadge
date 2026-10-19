@@ -88,6 +88,7 @@ fn bonus<'a>(badge: &BadgeConfig<'a>, layout: &LayoutConfig) -> View<'a> {
         module_size: layout.qr_module_size,
         url: badge.qr_url.into(),
         caption: badge.qr_caption.into(),
+        caption_font: Font::Text,
         caption_gap: layout.qr_caption_gap,
         ink: layout.key_ink,
         caption_ink: layout.value_ink,

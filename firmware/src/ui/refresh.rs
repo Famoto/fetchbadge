@@ -35,7 +35,7 @@ impl SavedState {
     }
 }
 // Bump when retained records or render semantics change.
-const MAGIC: u32 = 0x4241_5407;
+const MAGIC: u32 = 0x4241_5408;
 
 /// Regions are invalidations: complete intersecting views and old bounds may enlarge them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
