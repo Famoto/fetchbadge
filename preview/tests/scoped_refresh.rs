@@ -1,7 +1,7 @@
 use embedded_graphics::{prelude::*, primitives::Rectangle};
 use nametag_preview::{
     badge, config,
-    ui::{refresh, Element, Font, Pipeline, RefreshRequest, RenderError, View, ViewSet, MAX_VIEWS},
+    ui::{refresh, Element, Font, Pipeline, RefreshRequest, RenderError, View, MAX_VIEWS},
 };
 
 mod support;
@@ -12,9 +12,7 @@ fn area(x: i32, y: i32, width: u32, height: u32) -> Rectangle {
 }
 
 fn solid(bounds: Rectangle, ink: u8) -> View<'static> {
-    View::lazy(bounds, move |sink| {
-        sink.push(Element::Fill { area: Rectangle::new(Point::zero(), bounds.size), ink });
-    })
+    View::new(bounds, vec![Element::Fill { area: Rectangle::new(Point::zero(), bounds.size), ink }])
 }
 
 fn scene(inks: [u8; 3]) -> Pipeline<'static> {
@@ -28,15 +26,9 @@ fn scene(inks: [u8; 3]) -> Pipeline<'static> {
 fn displayed(pipeline: &Pipeline<'_>) -> TestBoard {
     let mut board = TestBoard::new(refresh::EMPTY, 3.98);
     board.powered = true;
-    pipeline.refresh(&mut board, RefreshRequest::Changed, false, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     board.events.clear();
     board
-}
-
-fn built(pipeline: &Pipeline<'_>) -> ViewSet {
-    (0..MAX_VIEWS).fold(0, |mask, id| {
-        mask | if pipeline.get(id).is_some_and(View::is_materialized) { 1 << id } else { 0 }
-    })
 }
 
 fn flushes(board: &TestBoard) -> usize {
@@ -44,40 +36,23 @@ fn flushes(board: &TestBoard) -> usize {
 }
 
 #[test]
-fn unchanged_wakes_build_no_draw_lists_and_changed_battery_builds_only_one() {
+fn unchanged_wakes_skip_panel_writes_and_changed_battery_flushes_once() {
     let original = badge::frame(&config::BADGE, &config::LAYOUT, 3.98).unwrap();
     let mut board = displayed(&original);
     let saved = board.saved;
     let started = std::time::Instant::now();
     for _ in 0..256 {
         let wake = badge::frame(&config::BADGE, &config::LAYOUT, 3.981).unwrap();
-        assert_eq!(built(&wake), 0);
-        wake.refresh(&mut board, RefreshRequest::Changed, true, Some(24)).unwrap();
-        assert_eq!(built(&wake), 0);
+        wake.refresh(&mut board, RefreshRequest::Changed, Some(24)).unwrap();
     }
-    eprintln!("256 unchanged host wake checks: {:?}; draw lists built: 0", started.elapsed());
+    eprintln!("256 unchanged host wake checks: {:?}", started.elapsed());
     assert_eq!(board.saved, saved);
     assert!(board.events.is_empty());
 
     let changed = badge::frame(&config::BADGE, &config::LAYOUT, 3.97).unwrap();
-    changed.refresh(&mut board, RefreshRequest::Changed, true, Some(24)).unwrap();
-    assert_eq!(built(&changed), 1 << badge::BATTERY);
+    changed.refresh(&mut board, RefreshRequest::Changed, Some(24)).unwrap();
     assert_eq!(flushes(&board), 1);
     board.assert_full_render(&changed);
-}
-
-#[test]
-fn materializing_and_noop_editing_preserve_recipe_signatures() {
-    let mut pipeline = badge::frame(&config::BADGE, &config::LAYOUT, 3.98).unwrap();
-    let before = pipeline.state();
-    let mut board = displayed(&pipeline);
-    for id in 0..6 {
-        // Converts the lazy recipe to editable content without changing any element.
-        pipeline.get_mut(id).unwrap().content_mut();
-    }
-    assert_eq!(pipeline.state(), before);
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
-    assert!(board.events.is_empty());
 }
 
 #[test]
@@ -86,21 +61,19 @@ fn selected_views_commit_only_displayed_records_and_keep_other_changes_pending()
     let mut board = displayed(&original);
     let saved = board.saved;
     let changed = scene([2, 6, 8]);
-    changed.refresh(&mut board, RefreshRequest::Views(1), true, None).unwrap();
-    assert_eq!(built(&changed), 1);
+    changed.refresh(&mut board, RefreshRequest::Views(1), None).unwrap();
     assert_eq!(board.saved.frame[0], changed.state()[0]);
     assert_eq!(board.saved.frame[1], saved.frame[1]);
     assert_eq!(flushes(&board), 1);
     board.assert_full_render(&scene([2, 4, 8]));
 
     board.events.clear();
-    changed.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
-    assert_eq!(built(&changed), 3);
+    changed.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(flushes(&board), 1);
     assert_eq!(board.saved.frame, changed.state());
     board.assert_full_render(&changed);
     board.events.clear();
-    changed.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    changed.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert!(board.events.is_empty());
 }
 
@@ -117,7 +90,7 @@ fn sparse_view_ids_use_the_same_scoped_refresh_path() {
     for id in [MAX_VIEWS - 1, 7, 0] {
         let previous = board.saved.frame;
         board.events.clear();
-        changed.refresh(&mut board, RefreshRequest::Views(1 << id), true, None).unwrap();
+        changed.refresh(&mut board, RefreshRequest::Views(1 << id), None).unwrap();
         assert_eq!(flushes(&board), 1);
         for (other, record) in board.saved.frame.iter().enumerate() {
             assert_eq!(*record, if other == id { changed.state()[id] } else { previous[other] });
@@ -125,7 +98,7 @@ fn sparse_view_ids_use_the_same_scoped_refresh_path() {
     }
     board.assert_full_render(&changed);
     board.events.clear();
-    changed.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    changed.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert!(board.events.is_empty());
 }
 
@@ -134,10 +107,10 @@ fn scoped_updates_against_a_different_backend_keep_unselected_changes_pending() 
     let desired = scene([2, 6, 8]);
     let _first_board = displayed(&desired); // This registry now has no dirty bits.
     let mut other_board = displayed(&scene([0, 4, 8]));
-    desired.refresh(&mut other_board, RefreshRequest::Views(1), true, None).unwrap();
+    desired.refresh(&mut other_board, RefreshRequest::Views(1), None).unwrap();
     other_board.assert_full_render(&scene([2, 4, 8]));
     other_board.events.clear();
-    desired.refresh(&mut other_board, RefreshRequest::Changed, true, None).unwrap();
+    desired.refresh(&mut other_board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(flushes(&other_board), 1);
     other_board.assert_full_render(&desired);
 }
@@ -147,33 +120,30 @@ fn edits_replacements_and_reverts_are_tracked_without_explicit_invalidation() {
     let mut pipeline = scene([0, 4, 8]);
     let mut board = displayed(&pipeline);
     let original = pipeline.get(0).unwrap().clone();
-    pipeline.get_mut(0).unwrap().content_mut()[0] =
-        Element::Fill { area: area(0, 0, 40, 40), ink: 2 };
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    pipeline.get_mut(0).unwrap().content[0] = Element::Fill { area: area(0, 0, 40, 40), ink: 2 };
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(flushes(&board), 1);
     board.assert_full_render(&scene([2, 4, 8]));
     board.events.clear();
     pipeline.register(0, original).unwrap();
     pipeline.register(0, solid(area(10, 10, 40, 40), 2)).unwrap();
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert!(board.events.is_empty(), "reverting to displayed content needs no update");
     pipeline.get_mut(0).unwrap().area.top_left.x = 300;
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(flushes(&board), 1);
     board.assert_full_render(&pipeline);
 }
 
 #[test]
-fn a_region_rebuilds_its_view_and_leaves_unrelated_changes_pending() {
+fn a_region_redraws_its_view_and_leaves_unrelated_changes_pending() {
     let mut board = displayed(&scene([0, 4, 8]));
     let changed = scene([2, 6, 8]);
-    changed.refresh(&mut board, RefreshRequest::Region(area(20, 20, 5, 5)), true, None).unwrap();
-    assert_eq!(built(&changed), 1);
+    changed.refresh(&mut board, RefreshRequest::Region(area(20, 20, 5, 5)), None).unwrap();
     assert!(board.events.contains(&Event::Clear(Some(area(10, 10, 40, 40)))));
     board.assert_full_render(&scene([2, 4, 8]));
     board.events.clear();
-    changed.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
-    assert_eq!(built(&changed), 3);
+    changed.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(flushes(&board), 1);
     board.assert_full_render(&changed);
 }
@@ -190,7 +160,7 @@ fn region_expansion_includes_old_bounds_removals_and_overlap_chains() {
     changed.get_mut(0).unwrap().area.top_left.x = 200;
     changed.deregister(1).unwrap();
     changed.register(3, solid(area(400, 10, 40, 40), 12)).unwrap();
-    changed.refresh(&mut board, RefreshRequest::Region(area(15, 15, 5, 5)), true, None).unwrap();
+    changed.refresh(&mut board, RefreshRequest::Region(area(15, 15, 5, 5)), None).unwrap();
     assert_eq!(board.saved.frame[0], changed.state()[0]);
     assert_eq!(board.saved.frame[1].active, 0);
     assert_eq!(board.saved.frame[2], changed.state()[2]);
@@ -199,20 +169,17 @@ fn region_expansion_includes_old_bounds_removals_and_overlap_chains() {
     expected.register(3, original.get(3).unwrap().clone()).unwrap();
     board.assert_full_render(&expected);
     board.events.clear();
-    changed.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    changed.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(flushes(&board), 1);
     board.assert_full_render(&changed);
 }
 
 #[test]
-fn background_regions_clear_and_flush_without_building_views() {
+fn background_regions_clear_and_flush_without_drawing_views() {
     let mut board = displayed(&scene([0, 4, 8]));
     let current = scene([0, 4, 8]);
     let saved = board.saved;
-    current
-        .refresh(&mut board, RefreshRequest::Region(area(600, 300, 20, 20)), true, None)
-        .unwrap();
-    assert_eq!(built(&current), 0);
+    current.refresh(&mut board, RefreshRequest::Region(area(600, 300, 20, 20)), None).unwrap();
     assert_eq!(flushes(&board), 1);
     assert!(!board.events.contains(&Event::Draw));
     assert_eq!(board.saved.frame, saved.frame);
@@ -227,12 +194,12 @@ fn invalid_and_empty_regions_preserve_pixels_and_retained_records() {
     let pixels = board.pixels.pixels().to_vec();
     for bounds in [area(-1, 0, 10, 10), area(959, 0, 2, 1), area(i32::MAX, 0, u32::MAX, 1)] {
         assert!(matches!(
-            pipeline.refresh(&mut board, RefreshRequest::Region(bounds), true, None),
+            pipeline.refresh(&mut board, RefreshRequest::Region(bounds), None),
             Err(RenderError::InvalidLayout(_))
         ));
     }
     for request in [RefreshRequest::Region(area(10, 10, 0, 0)), RefreshRequest::Views(0)] {
-        pipeline.refresh(&mut board, request, true, None).unwrap();
+        pipeline.refresh(&mut board, request, None).unwrap();
     }
     assert_eq!(board.saved, saved);
     assert_eq!(board.pixels.pixels(), pixels);
@@ -243,15 +210,15 @@ fn invalid_and_empty_regions_preserve_pixels_and_retained_records() {
 fn explicit_redraws_and_cleanup_work_without_dirty_content() {
     let pipeline = scene([0, 4, 8]);
     let mut board = displayed(&pipeline);
-    pipeline.refresh(&mut board, RefreshRequest::Views(2), true, Some(1)).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Views(2), Some(1)).unwrap();
     assert_eq!(board.saved.partials, 1);
     assert_eq!(flushes(&board), 1);
     board.events.clear();
-    pipeline.refresh(&mut board, RefreshRequest::Changed, true, Some(1)).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Changed, Some(1)).unwrap();
     assert!(board.events.contains(&Event::Clear(None)));
     assert_eq!(board.saved.partials, 0);
     board.events.clear();
-    pipeline.refresh(&mut board, RefreshRequest::Full, true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Full, None).unwrap();
     assert!(board.events.contains(&Event::Clear(None)));
     assert_eq!(flushes(&board), 1);
     board.assert_full_render(&pipeline);
@@ -261,7 +228,7 @@ fn explicit_redraws_and_cleanup_work_without_dirty_content() {
 fn a_new_empty_registry_erases_views_retained_from_the_previous_wake() {
     let mut board = displayed(&scene([0, 4, 8]));
     let empty = Pipeline::new();
-    empty.refresh(&mut board, RefreshRequest::Changed, true, None).unwrap();
+    empty.refresh(&mut board, RefreshRequest::Changed, None).unwrap();
     assert_eq!(board.saved.frame, empty.state());
     assert_eq!(flushes(&board), 1);
     assert!(!board.events.contains(&Event::Draw));
@@ -282,12 +249,12 @@ fn invalid_pending_views_are_validated_when_their_scope_is_selected() {
             ),
         )
         .unwrap();
-    pipeline.refresh(&mut board, RefreshRequest::Views(1), true, None).unwrap();
+    pipeline.refresh(&mut board, RefreshRequest::Views(1), None).unwrap();
     let saved = board.saved;
     let pixels = board.pixels.pixels().to_vec();
     board.events.clear();
     assert!(matches!(
-        pipeline.refresh(&mut board, RefreshRequest::Changed, true, None),
+        pipeline.refresh(&mut board, RefreshRequest::Changed, None),
         Err(RenderError::InvalidLayout(_))
     ));
     assert_eq!(board.saved, saved);
@@ -302,12 +269,12 @@ fn scoped_failures_force_full_recovery_even_for_an_empty_followup_request() {
         let mut board = displayed(&pipeline);
         board.failure = Some(failure);
         assert!(pipeline
-            .refresh(&mut board, RefreshRequest::Region(area(15, 15, 5, 5)), true, None)
+            .refresh(&mut board, RefreshRequest::Region(area(15, 15, 5, 5)), None)
             .is_err());
         assert_eq!(board.saved, refresh::EMPTY);
         board.failure = None;
         board.events.clear();
-        pipeline.refresh(&mut board, RefreshRequest::Views(0), true, None).unwrap();
+        pipeline.refresh(&mut board, RefreshRequest::Views(0), None).unwrap();
         assert!(board.events.contains(&Event::Clear(None)));
         assert_eq!(flushes(&board), 1);
         board.assert_full_render(&pipeline);

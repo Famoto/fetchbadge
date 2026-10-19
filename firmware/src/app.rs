@@ -15,14 +15,11 @@ pub fn run<H: Hardware>(
     hardware: &mut H,
     badge: &BadgeConfig<'_>,
     layout: &LayoutConfig,
-    resume: bool,
     full_after: Option<u32>,
 ) -> Result<(), RenderError<H::Error>> {
     let result = badge::frame(badge, layout, hardware.measure())
         .map_err(RenderError::InvalidLayout)
-        .and_then(|pipeline| {
-            pipeline.refresh(hardware, RefreshRequest::Changed, resume, full_after)
-        });
+        .and_then(|pipeline| pipeline.refresh(hardware, RefreshRequest::Changed, full_after));
     hardware.power_off();
     result
 }

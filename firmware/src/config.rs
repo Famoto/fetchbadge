@@ -4,10 +4,19 @@ use embedded_graphics::{geometry::Point, geometry::Size, primitives::Rectangle};
 pub const PANEL_SIZE: Size = Size::new(960, 540);
 pub const BATTERY_EMPTY_VOLTS: f32 = 3.3;
 pub const BATTERY_FULL_VOLTS: f32 = 4.2;
+/// Displayed voltage resolution. Readings round to this step, so ADC noise between wakes
+/// does not redraw the battery row. Raise it if an idle badge still refreshes every wake.
+pub const BATTERY_STEP_VOLTS: f32 = 0.05;
+const _: () = assert!(BATTERY_STEP_VOLTS > 0.0, "battery step must be positive");
 
 /// Firmware refresh interval in minutes. None disables the timer; Some must be nonzero.
 #[cfg(target_arch = "xtensa")]
 pub const REFRESH_INTERVAL_MINUTES: Option<u32> = Some(60);
+#[cfg(target_arch = "xtensa")]
+const _: () = assert!(
+    !matches!(REFRESH_INTERVAL_MINUTES, Some(0)),
+    "refresh interval must be greater than zero"
+);
 
 /// Full cleanup after this many successful partial updates. None disables it.
 #[cfg(target_arch = "xtensa")]

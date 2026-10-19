@@ -97,12 +97,12 @@ impl Pipeline<'_> {
             let Some(view) = self.get(id) else {
                 continue;
             };
-            if view.area.size.width == 0 || view.area.size.height == 0 {
+            if view.area.is_zero_sized() {
                 return Err(RenderError::InvalidLayout("view bounds must be nonempty"));
             }
             check_rect(view.area, target_bounds)?;
             let bounds = Rectangle::new(Point::zero(), view.area.size);
-            for element in view.content() {
+            for element in &view.content {
                 match element {
                     Element::Text { position, text, style } => {
                         prepared.prepare_text(view.area, *position, text, *style)?;
@@ -120,6 +120,7 @@ impl Pipeline<'_> {
                         module_size,
                         url,
                         caption,
+                        caption_font,
                         caption_gap,
                         ink,
                         caption_ink,
@@ -128,9 +129,9 @@ impl Pipeline<'_> {
                             PreparedQr::new(url, *bottom_left, *module_size, *ink, bounds)?;
                         prepared.prepare_text(
                             view.area,
-                            qr.caption_position(*caption_gap)?,
+                            qr.caption_position(*caption_gap, *caption_font)?,
                             caption,
-                            TextStyle { font: Font::Text, ink: *caption_ink, single_line: true },
+                            TextStyle { font: *caption_font, ink: *caption_ink, single_line: true },
                         )?;
                         qr.origin += view.area.top_left;
                         prepared.elements.push(PreparedElement::Qr(qr));
@@ -194,24 +195,22 @@ impl PreparedQr {
         Ok(Self { origin, size, module_size, modules, ink })
     }
 
-    fn caption_position<E>(&self, gap: i32) -> Result<Point, RenderError<E>> {
+    /// Right of the code, vertically centred on it.
+    fn caption_position<E>(&self, gap: i32, font: Font) -> Result<Point, RenderError<E>> {
         let side = self.size * self.module_size;
         let x = i32::try_from(i64::from(self.origin.x) + i64::from(side) + i64::from(gap))
             .map_err(|_| RenderError::InvalidLayout("QR caption coordinates overflow"))?;
-        Ok(Point::new(x, self.origin.y + side / 2 - Font::Text.size().height as i32 / 2))
+        Ok(Point::new(x, self.origin.y + side / 2 - font.size().height as i32 / 2))
     }
 
     fn draw<D: DrawTarget<Color = Gray4>>(&self, target: &mut D) -> Result<(), D::Error> {
-        let side = (self.size * self.module_size) as u32;
-        let area = Rectangle::new(Point::zero(), Size::new(side, side));
-        let pixels = area
-            .points()
-            .filter(|p| {
-                let index = (p.y / self.module_size) * self.size + p.x / self.module_size;
-                self.modules[index as usize]
-            })
-            .map(|p| Pixel(self.origin + p, Gray4::new(self.ink)));
-        target.draw_iter(pixels)
+        let module = Size::new_equal(self.module_size as u32);
+        for (index, _) in self.modules.iter().enumerate().filter(|(_, &dark)| dark) {
+            let (x, y) = (index as i32 % self.size, index as i32 / self.size);
+            let top_left = self.origin + Point::new(x, y) * self.module_size;
+            target.fill_solid(&Rectangle::new(top_left, module), Gray4::new(self.ink))?;
+        }
+        Ok(())
     }
 }
 

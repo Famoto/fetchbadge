@@ -6,11 +6,7 @@
 extern crate alloc;
 
 use esp_backtrace as _;
-use esp_hal::{
-    main,
-    rtc_cntl::{wakeup_cause, Rtc},
-    system::SleepSource,
-};
+use esp_hal::{main, rtc_cntl::Rtc};
 use lilygo_epd47::{pin_config, Battery, Display};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -19,7 +15,6 @@ mod app;
 mod badge;
 mod config;
 mod hardware;
-mod power;
 mod ui;
 
 #[main]
@@ -42,14 +37,9 @@ fn main() -> ! {
     let mut rtc = Rtc::new(peripherals.LPWR);
     let mut board = hardware::Board::new(display, battery, peripherals.GPIO21);
 
-    let resume = matches!(wakeup_cause(), SleepSource::Ext1 | SleepSource::Timer);
-    if let Err(error) = app::run(
-        &mut board,
-        &config::BADGE,
-        &config::LAYOUT,
-        resume,
-        config::FULL_REFRESH_AFTER_PARTIALS,
-    ) {
+    if let Err(error) =
+        app::run(&mut board, &config::BADGE, &config::LAYOUT, config::FULL_REFRESH_AFTER_PARTIALS)
+    {
         esp_println::println!("{error}");
     }
     // Deep sleep restarts main; only the checked display state survives in RTC RAM.
