@@ -37,6 +37,29 @@ fn missing_or_corrupt_state_requires_full_refresh() {
 }
 
 #[test]
+fn battery_percent_follows_lipo_curve() {
+    use badge::battery_percent;
+    for (volts, percent) in [
+        (f32::NAN, 0),
+        (-1.0, 0),
+        (3.27, 0),
+        (3.69, 10),
+        (3.75, 25),
+        (3.85, 53),
+        (4.20, 100),
+        (4.35, 100),
+    ] {
+        assert_eq!(battery_percent(volts), percent, "{volts} V");
+    }
+    let mut previous = 0;
+    for step in 0..=120 {
+        let percent = battery_percent(3.0 + step as f32 * 0.01);
+        assert!(percent >= previous, "percent must not drop as voltage rises");
+        previous = percent;
+    }
+}
+
+#[test]
 fn unchanged_displayed_battery_skips_updates() {
     let battery = RefreshKind::Partial(1 << badge::BATTERY);
     let saved = plan(EMPTY, &state(3.98), Some(24)).unwrap().next_saved;

@@ -1,7 +1,10 @@
 //! ESP display, retained storage, measurement, button handling, and deep sleep.
 use alloc::vec::Vec;
 use core::time::Duration;
-use embedded_graphics::primitives::Rectangle;
+use embedded_graphics::{
+    prelude::{Point, Size},
+    primitives::Rectangle,
+};
 use esp_hal::{
     delay::Delay,
     gpio::{Input, InputConfig, Pull, RtcPin, RtcPinWithResistors},
@@ -25,7 +28,78 @@ use crate::{
 // The wake cycle is the sole accessor, on one core. Every integer bit pattern is
 // valid; refresh::plan checks the marker/checksum before trusting RTC memory.
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
-static mut DISPLAY_STATE: SavedState = refresh::EMPTY;
+static mut DISPLAY_STATE: RtcSavedState = RtcSavedState::EMPTY;
+
+/// RTC storage must comprise only ESP-HAL persistable fields. Keep graphics
+/// types out of this representation because they cannot implement that trait.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RtcViewState {
+    active: u32,
+    top_left: [i32; 2],
+    size: [u32; 2],
+    content: u64,
+}
+
+impl RtcViewState {
+    const EMPTY: Self = Self { active: 0, top_left: [0; 2], size: [0; 2], content: 0 };
+}
+
+unsafe impl esp_hal::Persistable for RtcViewState {}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RtcSavedState {
+    version: u32,
+    partials: u32,
+    frame: [RtcViewState; ui::MAX_VIEWS],
+    checksum: u64,
+}
+
+impl RtcSavedState {
+    const EMPTY: Self = Self {
+        version: 0,
+        partials: 0,
+        frame: [RtcViewState::EMPTY; ui::MAX_VIEWS],
+        checksum: 0,
+    };
+}
+
+unsafe impl esp_hal::Persistable for RtcSavedState {}
+
+impl From<RtcSavedState> for SavedState {
+    fn from(saved: RtcSavedState) -> Self {
+        Self {
+            version: saved.version,
+            partials: saved.partials,
+            frame: saved.frame.map(|view| refresh::ViewState {
+                active: view.active,
+                area: Rectangle::new(
+                    Point::new(view.top_left[0], view.top_left[1]),
+                    Size::new(view.size[0], view.size[1]),
+                ),
+                content: view.content,
+            }),
+            checksum: saved.checksum,
+        }
+    }
+}
+
+impl From<SavedState> for RtcSavedState {
+    fn from(saved: SavedState) -> Self {
+        Self {
+            version: saved.version,
+            partials: saved.partials,
+            frame: saved.frame.map(|view| RtcViewState {
+                active: view.active,
+                top_left: [view.area.top_left.x, view.area.top_left.y],
+                size: [view.area.size.width, view.area.size.height],
+                content: view.content,
+            }),
+            checksum: saved.checksum,
+        }
+    }
+}
 
 const PANEL_STARTUP_MS: u32 = 10;
 const PANEL_SHUTDOWN_MS: u32 = 100;
@@ -124,12 +198,12 @@ impl<'d> ui::Backend for Board<'d> {
 
     fn load_saved(&mut self) -> SavedState {
         // SAFETY: no interrupt or other core reads/writes this static.
-        unsafe { core::ptr::read_volatile(&raw const DISPLAY_STATE) }
+        unsafe { core::ptr::read_volatile(&raw const DISPLAY_STATE).into() }
     }
 
     fn store_saved(&mut self, saved: SavedState) {
         // SAFETY: the wake cycle is the sole accessor.
-        unsafe { core::ptr::write_volatile(&raw mut DISPLAY_STATE, saved) };
+        unsafe { core::ptr::write_volatile(&raw mut DISPLAY_STATE, saved.into()) };
     }
 
     fn clear(&mut self, area: Option<Rectangle>) -> Result<(), DisplayError> {

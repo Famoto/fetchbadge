@@ -2,8 +2,35 @@
 use embedded_graphics::{geometry::Point, geometry::Size, primitives::Rectangle};
 
 pub const PANEL_SIZE: Size = Size::new(960, 540);
-pub const BATTERY_EMPTY_VOLTS: f32 = 3.3;
-pub const BATTERY_FULL_VOLTS: f32 = 4.2;
+/// Single-cell 3.7 V LiPo (here 2000 mAh) resting voltage to charge, ascending by voltage.
+/// The percentage interpolates linearly between points and clamps outside the table.
+/// Capacity does not change the curve; swap the table for a different chemistry.
+pub const BATTERY_CURVE: &[(f32, u8)] = &[
+    (3.27, 0),
+    (3.61, 5),
+    (3.69, 10),
+    (3.73, 20),
+    (3.77, 30),
+    (3.80, 40),
+    (3.84, 50),
+    (3.87, 60),
+    (3.95, 70),
+    (4.02, 80),
+    (4.11, 90),
+    (4.20, 100),
+];
+const _: () = {
+    assert!(BATTERY_CURVE.len() >= 2, "battery curve needs at least two points");
+    let mut i = 1;
+    while i < BATTERY_CURVE.len() {
+        assert!(BATTERY_CURVE[i].0 > BATTERY_CURVE[i - 1].0, "battery curve volts must ascend");
+        assert!(
+            BATTERY_CURVE[i].1 >= BATTERY_CURVE[i - 1].1,
+            "battery curve percent must not drop"
+        );
+        i += 1;
+    }
+};
 /// Displayed voltage resolution. Readings round to this step, so ADC noise between wakes
 /// does not redraw the battery row. Raise it if an idle badge still refreshes every wake.
 pub const BATTERY_STEP_VOLTS: f32 = 0.05;
@@ -11,7 +38,7 @@ const _: () = assert!(BATTERY_STEP_VOLTS > 0.0, "battery step must be positive")
 
 /// Firmware refresh interval in minutes. None disables the timer; Some must be nonzero.
 #[cfg(target_arch = "xtensa")]
-pub const REFRESH_INTERVAL_MINUTES: Option<u32> = Some(60);
+pub const REFRESH_INTERVAL_MINUTES: Option<u32> = Some(360);
 #[cfg(target_arch = "xtensa")]
 const _: () = assert!(
     !matches!(REFRESH_INTERVAL_MINUTES, Some(0)),

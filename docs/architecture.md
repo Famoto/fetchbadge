@@ -49,5 +49,5 @@ Only integer display records survive deep sleep; views are rebuilt on every wake
 Even unchanged readings require a short panel power-on to sample the battery (the battery
 must be read after the panel rail is on); boot, PSRAM, and framebuffer allocation overhead
 also remain. Actual energy savings require measurement. The battery reading is rounded to
-`BATTERY_STEP_VOLTS`, and the percentage is a clamped linear estimate of that rounded voltage
-between the limits in `config.rs`.
+`BATTERY_STEP_VOLTS`, and the percentage is looked up from that rounded voltage in the LiPo
+discharge table `BATTERY_CURVE` in `config.rs` (piecewise linear, clamped).

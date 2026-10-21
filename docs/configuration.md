@@ -21,7 +21,7 @@ voltage and output path are constants at the top of `preview/src/main.rs`.
 | `REFRESH_INTERVAL_MINUTES` | `Some(60)` | Timer wake interval; `None` = button-only. Zero fails the build. |
 | `BUTTON_WAKE_ENABLED` | `true` | IO21 wake; `false` = timer-only. Both off = reset-only. |
 | `FULL_REFRESH_AFTER_PARTIALS` | `Some(24)` | Full cleanup after this many partial updates; `None` = never, `Some(0)` = always. |
-| `BATTERY_EMPTY_VOLTS` / `BATTERY_FULL_VOLTS` | 3.3 / 4.2 | Linear battery percentage range. |
+| `BATTERY_CURVE` | 3.7 V LiPo, 3.27 V = 0 % … 4.20 V = 100 % | Voltage-to-percent table, interpolated between points. Capacity does not affect it; replace it for another chemistry. Volts must ascend (checked at build time). |
 | `BATTERY_STEP_VOLTS` | 0.05 | Displayed voltage resolution; the percentage follows the rounded voltage. Raise it if ADC noise still redraws the battery row on most wakes. |
 
 Details on what each wake does are in [firmware.md](firmware.md#wake-and-refresh-behavior).

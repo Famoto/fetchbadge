@@ -1,6 +1,6 @@
 # Fastfetch con nametag (LilyGO T5 4.7" E-Paper S3 V2.3)
 
-A battery-powered e-paper con badge that looks like `fastfetch` output: an ASCII logo,
+A battery-powered (3.7 V 2000 mAh LiPo) e-paper con badge that looks like `fastfetch` output: an ASCII logo,
 `user@host`, key/value rows, battery level, a QR code, and a grayscale bar.
 
 ![Badge preview](preview/preview.png)

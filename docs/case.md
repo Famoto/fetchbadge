@@ -1,10 +1,11 @@
 # Case and parts
 
 Print `tray.stl` floor-down and `bezel.stl` face-down, PETG/ASA, 0.2 mm, 3 walls, ~40 g total. No supports.
+Set the four M2.5 inserts into the tray with a soldering iron before assembly; press straight and stop flush.
 Outer size ~127 x 72 x 17 mm. Stack inside, front to back: clear lens, board, LiPo (foam tape).
 
 Board numbers are from LilyGO's official `shell/EPD47-S3.dxf`, but **measure your board** and adjust
-`fit`, `back_parts`, `bat_t`, and the port cutouts in the `.scad`. If USB-C/button cutouts land on the
+`fit`, `back_parts`, `bat_t` (battery thickness), and the port cutouts in the `.scad`. If USB-C/button cutouts land on the
 wrong side, set `mirror_ports = true`. Re-export from `case/`:
 
 ```sh
@@ -20,9 +21,10 @@ The back has a 100 x 50 x 0.8 mm recess for adhesive hook velcro, with 4 holes t
 | # | Part | Notes | ~Price |
 |---|------|-------|--------|
 | 1 | LilyGO T5 4.7" E-Paper S3 V2.3 |  | 40€ |
-| 1 | LiPo 3.7 V, 1000 mAh, **503450** (5 x 34 x 50 mm) | JST-PH 2.0 2-pin. **Check polarity against BAT+/BAT− on the board before plugging in**, cheap packs are often reversed | €6–10 |
+| 1 | LiPo 3.7 V, 2000 mAh, single cell (e.g. **605080**, 6 x 50 x 80 mm; must fit under the board, max ~118 x 63 mm) | JST-PH 2.0 2-pin. **Check polarity against BAT+/BAT− on the board before plugging in**, cheap packs are often reversed | €6–10 |
 | 1 | Clear acrylic or PETG sheet, 1 mm, cut to 118 x 63 mm | protects the 0.87 mm glass panel; set `lens_t=0` to skip | €3 |
-| 4 | M2 x 8 self-tapping screws for plastic (pan head) | bezel to tray | €2 |
+| 4 | M2.5 x 6 threaded knurled heat-set inserts (3.5 mm OD) | pressed into the tray corners with a soldering iron (~220 °C for PETG), flush with the top. Hole is `insert_d` = 3.3 mm; set it to your insert's recommended size | €2 |
+| 4 | M2.5 x 6 screws (pan or button head) | bezel to inserts: 2 mm bezel + 4 mm thread engagement. M2.5 x 8 also fits (hole is 6.5 mm deep) | €2 |
 | 1 | Adhesive **hook** velcro, 50 mm wide, cut to 100 mm | backpack patch panels are usually loop; get loop if yours is hook | €4 |
 | – | Double-sided foam tape | holds battery and board still | €2 |
 | – | Thread + needle or 2 small zip ties | through the stitch holes | — |

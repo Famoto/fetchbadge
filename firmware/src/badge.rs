@@ -1,8 +1,6 @@
 //! The neofetch scene is six independent views composed from ordinary UI elements.
 use crate::{
-    config::{
-        BadgeConfig, LayoutConfig, BATTERY_EMPTY_VOLTS, BATTERY_FULL_VOLTS, BATTERY_STEP_VOLTS,
-    },
+    config::{BadgeConfig, LayoutConfig, BATTERY_CURVE, BATTERY_STEP_VOLTS},
     ui::{Element, Font, Pipeline, View, ViewId},
 };
 use alloc::{format, vec, vec::Vec};
@@ -77,14 +75,27 @@ fn battery<'a>(layout: &LayoutConfig, volts: f32) -> View<'a> {
     // Percent derives from the rounded voltage, so both values change at the same threshold.
     // The float-to-int cast saturates: negative and NaN readings show 0.
     let volts = (volts / BATTERY_STEP_VOLTS + 0.5) as u32 as f32 * BATTERY_STEP_VOLTS;
-    let percent = ((volts - BATTERY_EMPTY_VOLTS) / (BATTERY_FULL_VOLTS - BATTERY_EMPTY_VOLTS)
-        * 100.0)
-        .clamp(0.0, 100.0) as u8;
+    let percent = battery_percent(volts);
     let mut content = Vec::new();
     let position = row_key(&mut content, "Battery", layout.battery.origin, layout);
     let reading = format!("{percent}% ({volts:.2}V)");
     content.push(Element::line(position, reading, Font::Text, layout.value_ink));
     View::new(layout.battery.area, content)
+}
+
+/// Piecewise-linear lookup in `BATTERY_CURVE`, clamped to its end points.
+pub fn battery_percent(volts: f32) -> u8 {
+    let (first, last) = (BATTERY_CURVE[0], BATTERY_CURVE[BATTERY_CURVE.len() - 1]);
+    if !(volts > first.0) {
+        return first.1; // also catches NaN
+    }
+    if volts >= last.0 {
+        return last.1;
+    }
+    let upper = BATTERY_CURVE.iter().position(|&(v, _)| v >= volts).unwrap_or(1);
+    let ((v0, p0), (v1, p1)) = (BATTERY_CURVE[upper - 1], BATTERY_CURVE[upper]);
+    let percent = p0 as f32 + (volts - v0) / (v1 - v0) * (p1 - p0) as f32;
+    (percent + 0.5) as u8
 }
 
 fn bonus<'a>(badge: &BadgeConfig<'a>, layout: &LayoutConfig) -> View<'a> {

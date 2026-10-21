@@ -13,8 +13,11 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 mod app;
 mod badge;
+// Shared with the host preview and tests, which use items the firmware does not.
+#[allow(dead_code)]
 mod config;
 mod hardware;
+#[allow(dead_code)]
 mod ui;
 
 #[main]

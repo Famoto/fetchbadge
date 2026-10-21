@@ -1,5 +1,5 @@
 // Velcro-backed case for the LilyGO T5 4.7" e-paper S3 (V2.3).
-// Two parts: tray (back, velcro side) + bezel (front, display window).
+// Two parts: tray (back, velcro holes) + bezel (front, display window).
 // Stack inside, front to back: clear lens -> panel+PCB -> LiPo pouch.
 // Board numbers come from LilyGO's EPD47-S3.dxf; MEASURE YOUR BOARD and tweak.
 //
@@ -11,14 +11,14 @@ part = "both";          // "tray" | "bezel" | "both"
 // --- board (from DXF: PCB 118.1 x 63.1, panel glass 0.87 thick) ---
 pcb_w = 118.1;
 pcb_h = 63.1;
-fit   = 0.25;           // clearance per side, raise if your printer runs fat
+fit   = 1.25;           // clearance per side (was 0.25; +2 mm overall per Luna's test fit)
 front_stack = 2.5;      // panel + PCB thickness, front of glass to PCB back
 back_parts  = 4.5;      // tallest part on the PCB back (USB-C, buttons, JST)
 lens_t = 1.0;           // clear acrylic/PETG protector over the glass; 0 = none
 bat_t  = 5.0;           // LiPo thickness (503450 = 5 mm)
 
 // --- shell ---
-wall  = 4;              // thick enough for M2 corner screws
+wall  = 6;              // leaves ~1.35 mm of plastic around the M2.5 inserts
 floor_t = 2;
 bezel_t = 2;
 win_w = 105;            // active area is 103.68 x 58.32
@@ -27,18 +27,26 @@ win_dx = 0;             // nudge window if your panel isn't centred
 win_dy = 0;
 
 // --- side cutouts (USB-C on a short end, RST/IO0/IO21 on a long edge) ---
+// USB-C sits 8 mm off centre TOWARD the button edge (checked against 3DMath's
+// T5 4.7 S3 housing on MakerWorld).
 mirror_ports = false;   // flip if the cutouts land on the wrong side
-usb_y  = 7.8;           // USB-C centre offset from board centre line
+usb_y  = 8;             // USB-C centre offset from board centre, toward buttons
 usb_w  = 12; usb_hgt = 7.5;
 btn_from_usb_end = 27;  // RST/BOOT/IO21 sit 28.5..50.9 mm from the USB end
 btn_len = 25; btn_hgt = 6;
 
-// --- velcro: recess on the back for a strip of adhesive hook tape ---
-velcro_w = 100; velcro_h = 50; velcro_d = 0.8;
-stitch_d = 1.6;         // holes in recess corners to sew/zip-tie the strip
+// --- velcro: through-holes in the back to sew/zip-tie a strip on ---
+velcro_w = 100; velcro_h = 50;   // hole pattern spans this
+stitch_d = 3;
 
-screw_pilot = 1.6;      // M2 self-tapping into plastic
-screw_clear = 2.4;
+// M2.5x6 heat-set knurled inserts in the tray corners, M2.5 screws through the bezel
+insert_d = 3.3;         // hole for a 3.5 mm OD insert; use your insert's recommended size
+insert_l = 6;
+screw_clear = 2.9;
+
+// bezel lip drops into a recess around the tray's inner top edge
+lip_w = 1.2; lip_h = 1.2;   // recess size
+lip_gap = 0.2;              // lip is this much narrower and shorter
 
 $fn = 48;
 
@@ -59,24 +67,32 @@ module tray() {
     difference() {
         linear_extrude(tray_h) outline();
         translate([0,0,floor_t]) linear_extrude(depth+1) square([in_w, in_h], center=true);
-        // corner pilot holes
-        for (p=screws) translate([p[0],p[1],tray_h-10]) cylinder(d=screw_pilot, h=11);
+        // recess for the bezel lip
+        translate([0,0,tray_h-lip_h]) linear_extrude(lip_h+1)
+            offset(delta=lip_w) square([in_w, in_h], center=true);
+        // corner insert holes (+0.5 mm so melt has somewhere to go)
+        for (p=screws) translate([p[0],p[1],tray_h-insert_l-0.5]) cylinder(d=insert_d, h=insert_l+1.5);
         // USB-C (short end, -X)
-        translate([-in_w/2-wall-1, s*usb_y-usb_w/2, port_z-usb_hgt/2])
+        translate([-in_w/2-wall-1, -s*usb_y-usb_w/2, port_z-usb_hgt/2])
             cube([wall+2, usb_w, usb_hgt]);
         // button slot (long edge, -Y)
         translate([-in_w/2+btn_from_usb_end, -s*(in_h/2+wall/2)-(wall+2)/2, port_z-btn_hgt/2])
             cube([btn_len, wall+2, btn_hgt]);
-        // velcro recess + stitch holes
-        translate([0,0,-1]) linear_extrude(velcro_d+1) square([velcro_w, velcro_h], center=true);
-        for (sx=[-1,1], sy=[-1,1])
+        // velcro holes: 3 per long side
+        for (sx=[-1,0,1], sy=[-1,1])
             translate([sx*(velcro_w/2-4), sy*(velcro_h/2-4), -1]) cylinder(d=stitch_d, h=floor_t+2);
     }
 }
 
 module bezel() {
     difference() {
-        linear_extrude(bezel_t) outline();
+        union() {
+            linear_extrude(bezel_t) outline();
+            translate([0,0,-(lip_h-lip_gap)]) linear_extrude(lip_h-lip_gap+0.01) difference() {
+                offset(delta=lip_w-lip_gap) square([in_w, in_h], center=true);
+                square([in_w, in_h], center=true);
+            }
+        }
         translate([win_dx, win_dy, -1]) linear_extrude(bezel_t+2)
             offset(r=1) square([win_w-2, win_h-2], center=true);
         for (p=screws) translate([p[0],p[1],-1]) cylinder(d=screw_clear, h=bezel_t+2);
