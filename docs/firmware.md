@@ -54,7 +54,15 @@ IO0 remains reserved for boot/panel control.
 
 The supplied pinmap picture labels its PCB **V2.4 capacitive touch**. IO21/button and
 IO14/battery agree with this implementation, but the driver targets V2.3; display compatibility
-with V2.4 still requires a hardware check. Touch wake and the external RTC are not configured.
+with V2.4 still requires a hardware check. The external RTC is not configured.
+
+## Touch
+
+The GT911 (I2C SDA=18, SCL=17, INT=47) cannot wake deep sleep because GPIO47 is not an RTC pin.
+Any wake except the timer (power-on, RST, IO21) therefore turns touch on for `TOUCH_WINDOW_SECS` (60 s, restarted by each
+tap) and swaps the QR caption for `qr_touch_caption`. Tapping the QR view shows the code full
+screen; any tap returns. When the window closes, the plain badge is restored and the GT911 sleeps.
+Timer wakes put it to sleep immediately; serial logs each tap and a missing GT911. If taps land mirrored, adjust the mapping in `touch::Touch::read`.
 
 See [configuration.md](configuration.md) for the settings above and
 [architecture.md](architecture.md) for how a wake cycle is structured.

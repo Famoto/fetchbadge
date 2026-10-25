@@ -14,11 +14,13 @@ use esp_hal::{
         wakeup_cause, Rtc,
     },
     system::SleepSource,
+    time::{Duration as TouchDuration, Instant},
 };
 use lilygo_epd47::{Battery, Display, DrawMode, Error as DisplayError};
 
 use crate::{
     app, config,
+    touch::Touch,
     ui::{
         self,
         refresh::{self, SavedState},
@@ -106,12 +108,15 @@ const PANEL_SHUTDOWN_MS: u32 = 100;
 const BUTTON_POLL_MS: u32 = 10;
 const BUTTON_RELEASE_SAMPLES: u32 = 3;
 const BUTTON_RELEASE_TIMEOUT_MS: u32 = 2_000;
+const TOUCH_POLL_MS: u32 = 30;
 
 pub struct Board<'d> {
     display: Display<'d>,
     battery: Battery<'d, GPIO14<'d>>,
     button_pin: GPIO21<'d>,
     delay: Delay,
+    touch: Option<Touch<'d>>,
+    touch_deadline: Option<Instant>,
 }
 
 impl<'d> Board<'d> {
@@ -119,10 +124,25 @@ impl<'d> Board<'d> {
         display: Display<'d>,
         battery: Battery<'d, GPIO14<'d>>,
         button_pin: GPIO21<'d>,
+        touch: Option<Touch<'d>>,
     ) -> Self {
-        let mut board = Self { display, battery, button_pin, delay: Delay::new() };
+        let delay = Delay::new();
+        let wake = wakeup_cause();
+        // Touch can't wake deep sleep (its INT is GPIO47, not an RTC pin), so a button
+        // (RST or IO21) or power-on turns it on. Timer wakes park the GT911 right away;
+        // it draws mA idle.
+        let touch = touch.and_then(|touch| {
+            if !matches!(wake, SleepSource::Timer) {
+                Some(touch)
+            } else {
+                touch.sleep(&delay);
+                None
+            }
+        });
+        let mut board =
+            Self { display, battery, button_pin, delay, touch, touch_deadline: None };
         // RST keeps RTC RAM, but power-on and reset must redraw everything.
-        if !matches!(wakeup_cause(), SleepSource::Ext1 | SleepSource::Timer) {
+        if !matches!(wake, SleepSource::Ext1 | SleepSource::Timer) {
             ui::Backend::store_saved(&mut board, refresh::EMPTY);
         }
         board
@@ -182,7 +202,31 @@ impl app::Hardware for Board<'_> {
         self.battery.read()
     }
 
+    fn touch_enabled(&self) -> bool {
+        self.touch.is_some()
+    }
+
+    fn wait_tap(&mut self) -> Option<Point> {
+        let touch = self.touch.as_mut()?;
+        let window = TouchDuration::from_secs(config::TOUCH_WINDOW_SECS);
+        let deadline = *self.touch_deadline.get_or_insert_with(|| Instant::now() + window);
+        while touch.read().is_some() {} // drop taps queued during the last refresh
+        while Instant::now() < deadline {
+            if let Some((x, y)) = touch.read() {
+                // QR tap area: x 0..440, y 396..540. Elsewhere? Fix the mapping in touch.rs.
+                esp_println::println!("touch: tap at {x},{y}");
+                self.touch_deadline = Some(Instant::now() + window);
+                return Some(Point::new(x, y));
+            }
+            self.delay.delay_millis(TOUCH_POLL_MS);
+        }
+        None
+    }
+
     fn power_off(&mut self) {
+        if let Some(touch) = self.touch.take() {
+            touch.sleep(&self.delay);
+        }
         self.display.power_off();
         self.delay.delay_millis(PANEL_SHUTDOWN_MS);
     }

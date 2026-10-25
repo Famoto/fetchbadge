@@ -12,6 +12,8 @@ pub const DATA: ViewId = 2;
 pub const BATTERY: ViewId = 3;
 pub const BONUS: ViewId = 4;
 pub const COLOUR_SCALE: ViewId = 5;
+/// Not part of `frame`; the app registers it on a QR tap.
+pub const QR_FULL: ViewId = 6;
 
 /// Borrow the badge's content, independently of the configuration wrapper's lifetime.
 pub fn frame<'a>(
@@ -110,6 +112,23 @@ fn bonus<'a>(badge: &BadgeConfig<'a>, layout: &LayoutConfig) -> View<'a> {
         caption_ink: layout.value_ink,
     };
     View::new(layout.bonus.area, vec![qr])
+}
+
+/// White backdrop over the whole badge with a large, uncaptioned QR on top.
+pub fn qr_full<'a>(badge: &BadgeConfig<'a>, layout: &LayoutConfig) -> View<'a> {
+    let area = layout.qr_full.area;
+    let backdrop = Element::Fill { area: Rectangle::new(Point::zero(), area.size), ink: 15 };
+    let qr = Element::Qr {
+        bottom_left: layout.qr_full.origin,
+        module_size: layout.qr_full_module_size,
+        url: badge.qr_url.into(),
+        caption: "".into(),
+        caption_font: Font::Text,
+        caption_gap: 0,
+        ink: layout.key_ink,
+        caption_ink: layout.key_ink,
+    };
+    View::new(area, vec![backdrop, qr])
 }
 
 fn colour_scale<'a>(badge: &BadgeConfig<'a>, layout: &LayoutConfig) -> View<'a> {

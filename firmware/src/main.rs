@@ -6,7 +6,13 @@
 extern crate alloc;
 
 use esp_backtrace as _;
-use esp_hal::{main, rtc_cntl::Rtc};
+use esp_hal::{
+    delay::Delay,
+    gpio::Flex,
+    i2c::master::{Config as I2cConfig, I2c},
+    main,
+    rtc_cntl::Rtc,
+};
 use lilygo_epd47::{pin_config, Battery, Display};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -17,6 +23,7 @@ mod badge;
 #[allow(dead_code)]
 mod config;
 mod hardware;
+mod touch;
 #[allow(dead_code)]
 mod ui;
 
@@ -29,16 +36,23 @@ fn main() -> ! {
     };
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram, psram);
 
-    let display = Display::new(
+    let mut display = Display::new(
         pin_config!(peripherals),
         peripherals.DMA_CH0,
         peripherals.LCD_CAM,
         peripherals.RMT,
     )
     .expect("display init");
+    // The touch panel may hang off the panel rail, so power it before probing the GT911.
+    display.power_on();
     let battery = Battery::new(peripherals.GPIO14, peripherals.ADC2);
     let mut rtc = Rtc::new(peripherals.LPWR);
-    let mut board = hardware::Board::new(display, battery, peripherals.GPIO21);
+    let i2c = I2c::new(peripherals.I2C0, I2cConfig::default())
+        .expect("i2c")
+        .with_sda(peripherals.GPIO18)
+        .with_scl(peripherals.GPIO17);
+    let touch = touch::Touch::new(i2c, Flex::new(peripherals.GPIO47), &Delay::new());
+    let mut board = hardware::Board::new(display, battery, peripherals.GPIO21, touch);
 
     if let Err(error) =
         app::run(&mut board, &config::BADGE, &config::LAYOUT, config::FULL_REFRESH_AFTER_PARTIALS)

@@ -33,6 +33,8 @@ pub struct TestBoard {
     pub volts: f32,
     pub failure: Option<Failure>,
     pub powered: bool,
+    /// Scripted taps; any taps turn touch on for the wake.
+    pub taps: Vec<Point>,
     flushed: bool,
     drawing: bool,
     pub pixels: Framebuffer,
@@ -46,6 +48,7 @@ impl TestBoard {
             volts,
             failure: None,
             powered: false,
+            taps: Vec::new(),
             flushed: false,
             drawing: false,
             pixels: Framebuffer::default(),
@@ -72,6 +75,14 @@ impl Hardware for TestBoard {
         self.flushed = false;
         self.events.extend([Event::PowerOn, Event::Measure]);
         self.volts
+    }
+
+    fn touch_enabled(&self) -> bool {
+        !self.taps.is_empty()
+    }
+
+    fn wait_tap(&mut self) -> Option<Point> {
+        (!self.taps.is_empty()).then(|| self.taps.remove(0))
     }
 
     fn power_off(&mut self) {

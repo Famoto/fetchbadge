@@ -49,6 +49,10 @@ const _: () = assert!(
 #[cfg(target_arch = "xtensa")]
 pub const FULL_REFRESH_AFTER_PARTIALS: Option<u32> = Some(24);
 
+/// Seconds touch stays on after an IO21 button wake; each tap restarts the window.
+#[cfg(target_arch = "xtensa")]
+pub const TOUCH_WINDOW_SECS: u64 = 60;
+
 /// Enable IO21 button wake. RST remains available when both wake sources are disabled.
 #[cfg(target_arch = "xtensa")]
 pub const BUTTON_WAKE_ENABLED: bool = true;
@@ -60,6 +64,8 @@ pub struct BadgeConfig<'a> {
     pub info: &'a [(&'a str, &'a str)],
     pub qr_url: &'a str,
     pub qr_caption: &'a str,
+    /// Replaces `qr_caption` while touch is on.
+    pub qr_touch_caption: &'a str,
     pub logo: &'a str,
     pub colours: &'a [u8],
 }
@@ -71,7 +77,7 @@ pub const BADGE: BadgeConfig<'static> = BadgeConfig {
     info: &[
         ("Pronouns", "they/them"),
         ("GitHub", "famoto"),
-        ("Blog", "famoto.github.io"),
+        ("Blog", "famoto.digital"),
         ("OS", "Human (x86_64)"),
         ("Host", "40C3"),
         ("Shell", "zsh"),
@@ -79,8 +85,9 @@ pub const BADGE: BadgeConfig<'static> = BadgeConfig {
         ("Memory", "volatile, no ECC"),
         ("IRQs", "unmasked, all of them"),
     ],
-    qr_url: "https://famoto.github.io",
+    qr_url: "https://xn--bck1dqb1c.dev",
     qr_caption: "<- my blog",
+    qr_touch_caption: "<- tap me",
     logo: LOGO,
     colours: &[0, 2, 4, 6, 8, 10, 12, 14],
 };
@@ -100,11 +107,14 @@ pub struct LayoutConfig {
     pub battery: ViewLayout,
     pub bonus: ViewLayout,
     pub colour_scale: ViewLayout,
+    /// Full-screen QR shown on tap; covers every other view.
+    pub qr_full: ViewLayout,
     pub rule_y: i32,
     pub rule_height: u32,
     pub row_spacing: i32,
     pub qr_module_size: u32,
     pub qr_caption_gap: i32,
+    pub qr_full_module_size: u32,
     pub colour_step: i32,
     pub colour_block_size: Size,
     pub key_ink: u8,
@@ -137,11 +147,17 @@ pub const LAYOUT: LayoutConfig = LayoutConfig {
         area: Rectangle::new(Point::new(440, 484), Size::new(520, 56)),
         origin: Point::new(0, 14),
     },
+    // Centres a 25-module (version 2) code at 16 px per module; longer URLs need a new origin.
+    qr_full: ViewLayout {
+        area: Rectangle::new(Point::new(0, 0), PANEL_SIZE),
+        origin: Point::new(280, 470),
+    },
     rule_y: 104,
     rule_height: 4,
     row_spacing: 36,
     qr_module_size: 5,
     qr_caption_gap: 16,
+    qr_full_module_size: 16,
     colour_step: 52,
     colour_block_size: Size::new(48, 32),
     key_ink: 0,

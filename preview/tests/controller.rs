@@ -254,3 +254,18 @@ fn invalid_content_preserves_panel_and_saved_state_before_shutting_down() {
     assert_eq!(board.pixels.pixels(), pixels);
     assert_eq!(board.events, vec![Event::PowerOn, Event::Measure, Event::PowerOff]);
 }
+
+#[test]
+fn qr_taps_toggle_the_full_screen_code_and_the_window_ends_on_the_plain_badge() {
+    let mut board = TestBoard::new(refresh::EMPTY, 3.98);
+    let (outside, qr) = (Point::new(900, 10), config::LAYOUT.bonus.area.center());
+    board.taps = vec![outside, qr, outside];
+    run(&mut board, &config::BADGE, &config::LAYOUT, None).unwrap();
+    // Hinted badge, open, close (any tap closes), hint removed; the stray first tap draws nothing.
+    let flushes = board.events.iter().filter(|event| matches!(event, Event::Flush)).count();
+    assert_eq!(flushes, 4);
+    let clears: Vec<_> = board.events.iter().filter(|e| matches!(e, Event::Clear(_))).collect();
+    assert_eq!(clears, [&Event::Clear(None); 4], "touch mode only redraws fully");
+    assert_eq!(board.events.last(), Some(&Event::PowerOff));
+    board.assert_full_render(&badge::frame(&config::BADGE, &config::LAYOUT, 3.98).unwrap());
+}
